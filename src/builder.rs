@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::{actions::{Check, Reducer}, errors::BuildError, machine::Machine, node::Node, runner::PartialRunState, shared::{Arg, ERROR_NODE_ID, HELP_COMMAND_INDEX, INITIAL_NODE_ID, SUCCESS_NODE_ID}};
+use crate::{actions::{Check, Reducer}, errors::BuildError, machine::Machine, node::Node, shared::{Arg, ERROR_NODE_ID, HELP_COMMAND_INDEX, INITIAL_NODE_ID, SUCCESS_NODE_ID}};
 
 pub struct CliBuilder {
     pub commands: Vec<CommandBuilder>,

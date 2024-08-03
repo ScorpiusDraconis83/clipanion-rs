@@ -1,5 +1,3 @@
-use partially::Partial;
-
 use crate::{actions::{apply_check, apply_reducer}, errors::Error, machine::{Machine, MachineContext}, shared::{Arg, ERROR_NODE_ID, HELP_COMMAND_INDEX, INITIAL_NODE_ID}};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,8 +42,7 @@ pub enum Positional {
     Rest(String),
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Partial)]
-#[partially(derive(Debug, Default, Clone, PartialEq, Eq))]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct RunState {
     pub candidate_usage: String,
     pub required_options: Vec<String>,

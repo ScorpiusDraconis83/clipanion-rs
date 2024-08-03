@@ -1,5 +1,3 @@
-use partially::Partial;
-
 use crate::{machine::MachineContext, runner::{OptionValue, Positional, RunState, Token}, shared::{Arg, HELP_COMMAND_INDEX}};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
