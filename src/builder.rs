@@ -64,11 +64,11 @@ pub struct CommandBuilder {
 
     pub paths: Vec<Vec<String>>,
 
-    pub all_option_names: HashSet<String>,
-    pub all_bindable_names: HashSet<String>,
-
     pub options: BTreeMap<String, OptionDefinition>,
     pub preferred_names: HashMap<String, String>,
+    pub required_options: Vec<String>,
+    pub valid_bindings: HashSet<String>,
+
 
     pub arity: Arity,
 }
@@ -93,11 +93,10 @@ impl CommandBuilder {
 
             paths: vec![],
 
-            all_option_names: HashSet::new(),
-            all_bindable_names: HashSet::new(),
-
             options: BTreeMap::new(),
             preferred_names: HashMap::new(),
+            required_options: vec![],
+            valid_bindings: HashSet::new(),
 
             arity: Arity {
                 leading: vec![],
@@ -222,12 +221,15 @@ impl CommandBuilder {
             .clone();
 
         for name in &option.name_set {
-            self.all_option_names.insert(name.to_string());
             self.preferred_names.insert(name.to_string(), preferred_name.clone());
+        }
 
-            if option.allow_binding {
-                self.all_bindable_names.insert(preferred_name.clone());
-            }
+        if option.allow_binding {
+            self.valid_bindings.insert(preferred_name.clone());
+        }
+
+        if option.required {
+            self.required_options.push(preferred_name.clone());
         }
 
         self.options.insert(preferred_name, option);
@@ -238,23 +240,20 @@ impl CommandBuilder {
     pub fn compile(&self) -> Machine {
         let mut machine = Machine::new();
 
-        let candidate_usage = self.usage(CommandUsageOptions {
+        let context = &mut machine.contexts[0];
+
+        context.command_index = self.cli_index;
+        context.preferred_names = self.preferred_names.clone();
+        context.valid_bindings = self.valid_bindings.clone();
+
+        context.command_usage = self.usage(CommandUsageOptions {
             detailed: false,
             inline_options: true,
         }).0;
 
-        let required_options = self.options.iter()
-            .filter(|(_, option)| option.required)
-            .map(|(_, option)| option.name_set.clone())
-            .collect::<Vec<_>>();
-
         let first_node_id = machine.inject_node(Node::new());
 
-        machine.register_static(INITIAL_NODE_ID, Arg::StartOfInput, first_node_id, Reducer::SetCandidateState(PartialRunState {
-            candidate_usage: Some(candidate_usage),
-            required_options: Some(required_options),
-            ..Default::default()
-        }));
+        machine.register_static(INITIAL_NODE_ID, Arg::StartOfInput, first_node_id, Reducer::SetRequiredOptions(self.required_options.clone()));
 
         let positional_argument = match self.arity.proxy {
             true => Check::Always,
@@ -284,23 +283,23 @@ impl CommandBuilder {
                     // Note that we do not do this for the last part, otherwise there would be
                     // some redundancy with the `useHelp` attached later.
                     let help_node_id = machine.inject_node(Node::new());
-                    machine.register_dynamic(last_path_node_id, Check::IsHelp, help_node_id, Reducer::UseHelp(self.cli_index));
-                    machine.register_static(help_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex(HELP_COMMAND_INDEX));
+                    machine.register_dynamic(last_path_node_id, Check::IsHelp, help_node_id, Reducer::UseHelp);
+                    machine.register_static(help_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::None);
                 }
             }
 
             if self.arity.leading.len() > 0 || !self.arity.proxy {
                 let help_node_id = machine.inject_node(Node::new());
-                machine.register_dynamic(last_path_node_id, Check::IsHelp, help_node_id, Reducer::UseHelp(self.cli_index));
-                machine.register_dynamic(help_node_id, Check::Always, help_node_id, Reducer::PushExtra);
-                machine.register_static(help_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex(HELP_COMMAND_INDEX));
+                machine.register_dynamic(last_path_node_id, Check::IsHelp, help_node_id, Reducer::UseHelp);
+                machine.register_dynamic(help_node_id, Check::Always, help_node_id, Reducer::PushOptional);
+                machine.register_static(help_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::None);
 
                 self.register_options(&mut machine, last_path_node_id);
             }
 
             if self.arity.leading.len() > 0 {
                 machine.register_static(last_path_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
-                machine.register_static(last_path_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex(self.cli_index as isize));
+                machine.register_static(last_path_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
             }
 
             let mut last_leading_node_id = last_path_node_id;
@@ -313,7 +312,7 @@ impl CommandBuilder {
 
                 if self.arity.trailing.len() > 0 || t + 1 != self.arity.leading.len() {
                     machine.register_static(next_leading_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
-                    machine.register_static(next_leading_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex(self.cli_index as isize));
+                    machine.register_static(next_leading_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
                 }
 
                 machine.register_dynamic(last_leading_node_id, Check::IsNotOptionLike, next_leading_node_id, Reducer::PushPositional);
@@ -343,7 +342,7 @@ impl CommandBuilder {
                             self.register_options(&mut machine, extra_node_id);
                         }
 
-                        machine.register_dynamic(last_extra_node_id, positional_argument.clone(), extra_node_id, Reducer::PushExtra);
+                        machine.register_dynamic(last_extra_node_id, positional_argument.clone(), extra_node_id, Reducer::PushOptional);
                         machine.register_shortcut(extra_node_id, extra_shortcut_node_id, Reducer::None);
                         last_extra_node_id = extra_node_id;
                     }
@@ -354,7 +353,7 @@ impl CommandBuilder {
 
             if self.arity.trailing.len() > 0 {
                 machine.register_static(last_extra_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
-                machine.register_static(last_extra_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex(self.cli_index as isize));
+                machine.register_static(last_extra_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
             }
 
             let mut last_trailing_node_id = last_extra_node_id;
@@ -367,7 +366,7 @@ impl CommandBuilder {
 
                 if t + 1 < self.arity.trailing.len() {
                     machine.register_static(next_trailing_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
-                    machine.register_static(next_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex(self.cli_index as isize));
+                    machine.register_static(next_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
                 }
 
                 machine.register_dynamic(last_trailing_node_id, Check::IsNotOptionLike, next_trailing_node_id, Reducer::PushPositional);
@@ -375,27 +374,27 @@ impl CommandBuilder {
             }
 
             machine.register_dynamic(last_trailing_node_id, positional_argument.clone(), ERROR_NODE_ID, Reducer::SetError("Extraneous positional argument".to_string()));
-            machine.register_static(last_trailing_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex(self.cli_index as isize));
-            machine.register_static(last_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex(self.cli_index as isize));
+            machine.register_static(last_trailing_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
+            machine.register_static(last_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
         }
 
         machine
     }
 
     fn register_options(&self, machine: &mut Machine, node_id: usize) {
-        machine.register_dynamic(node_id, Check::IsExact("--".to_string()), node_id, Reducer::InhibateOptions);
-        machine.register_dynamic(node_id, Check::IsBatchOption(self.all_option_names.clone()), node_id, Reducer::PushBatch);
-        machine.register_dynamic(node_id, Check::IsBoundOption(self.all_bindable_names.clone()), node_id, Reducer::PushBound);
-        machine.register_dynamic(node_id, Check::IsUnsupportedOption(self.all_option_names.clone()), ERROR_NODE_ID, Reducer::SetError("Unsupported option name".to_string()));
+        machine.register_dynamic(node_id, Check::IsExactOption("--".to_string()), node_id, Reducer::InhibateOptions);
+        machine.register_dynamic(node_id, Check::IsBatchOption, node_id, Reducer::PushBatch);
+        machine.register_dynamic(node_id, Check::IsBoundOption, node_id, Reducer::PushBound);
+        machine.register_dynamic(node_id, Check::IsUnsupportedOption, ERROR_NODE_ID, Reducer::SetError("Unsupported option name".to_string()));
         machine.register_dynamic(node_id, Check::IsInvalidOption, ERROR_NODE_ID, Reducer::SetError("Invalid option name".to_string()));
 
         for (preferred_name, option) in &self.options {
             if option.arity == 0 {
                 for name in &option.name_set {
-                    machine.register_dynamic(node_id, Check::IsExact(name.to_string()), node_id, Reducer::PushTrue(preferred_name.clone()));
+                    machine.register_dynamic(node_id, Check::IsExactOption(name.to_string()), node_id, Reducer::PushTrue(preferred_name.clone()));
 
                     if name.starts_with("--") && !name.starts_with("--no-") {
-                        machine.register_dynamic(node_id, Check::IsExactString(format!("--no-{}", &name[2..])), node_id, Reducer::PushFalse(preferred_name.clone()));
+                        machine.register_dynamic(node_id, Check::IsNegatedOption(name.to_string()), node_id, Reducer::PushFalse(preferred_name.clone()));
                     }
                 }
             } else {
@@ -404,7 +403,7 @@ impl CommandBuilder {
 
                 // We register transitions from the starting node to this new node
                 for name in &option.name_set {
-                    machine.register_dynamic(node_id, Check::IsExact(name.to_string()), last_node_id, Reducer::PushNone(preferred_name.clone()));
+                    machine.register_dynamic(node_id, Check::IsExactOption(name.to_string()), last_node_id, Reducer::PushNone(preferred_name.clone()));
                 }
 
                 // For each argument, we inject a new node at the end and we
@@ -419,8 +418,8 @@ impl CommandBuilder {
 
                     // If the option has a single argument, no need to store it in an array
                     let action = match option.arity {
-                        1 => Reducer::SetStringValue,
-                        _ => Reducer::PushStringValue,
+                        1 => Reducer::ResetStringValue,
+                        _ => Reducer::AppendStringValue,
                     };
 
                     machine.register_dynamic(last_node_id, Check::IsNotOptionLike, next_node_id, action);

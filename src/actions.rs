@@ -1,8 +1,6 @@
-use std::collections::HashSet;
-
 use partially::Partial;
 
-use crate::{runner::{OptionValue, PartialRunState, Positional, RunState, Token}, shared::Arg};
+use crate::{machine::MachineContext, runner::{OptionValue, Positional, RunState, Token}, shared::{Arg, HELP_COMMAND_INDEX}};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reducer {
@@ -10,20 +8,20 @@ pub enum Reducer {
     InhibateOptions,
     PushBatch,
     PushBound,
-    PushExtra,
+    PushOptional,
     PushFalse(String),
     PushNone(String),
     PushPath,
     PushPositional,
     PushRest,
-    PushStringValue,
+    AppendStringValue,
     PushTrue(String),
-    SetCandidateState(PartialRunState),
+    SetRequiredOptions(Vec<String>),
     SetError(String),
     SetOptionArityError,
-    SetSelectedIndex(isize),
-    SetStringValue,
-    UseHelp(usize),
+    SetSelectedIndex,
+    ResetStringValue,
+    UseHelp,
 }
 
 impl Default for Reducer {
@@ -35,18 +33,18 @@ impl Default for Reducer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Check {
     Always,
-    IsBatchOption(HashSet<String>),
-    IsBoundOption(HashSet<String>),
-    IsExact(String),
-    IsExactString(String),
+    IsBatchOption,
+    IsBoundOption,
+    IsExactOption(String),
+    IsNegatedOption(String),
     IsHelp,
     IsNotOptionLike,
     IsOptionLike,
-    IsUnsupportedOption(HashSet<String>),
+    IsUnsupportedOption,
     IsInvalidOption,
 }
 
-pub fn apply_reducer(reducer: &Reducer, state: &RunState, arg: &Arg, segment_index: usize) -> RunState {
+pub fn apply_reducer(reducer: &Reducer, context: &MachineContext, state: &RunState, arg: &Arg, segment_index: usize) -> RunState {
     match reducer {
         Reducer::InhibateOptions => {
             let mut state = state.clone();
@@ -111,7 +109,7 @@ pub fn apply_reducer(reducer: &Reducer, state: &RunState, arg: &Arg, segment_ind
             state
         }
 
-        Reducer::PushExtra => {
+        Reducer::PushOptional => {
             let arg = arg.unwrap_user();
             let mut state = state.clone();
             state.positionals.push(Positional::Optional(arg.to_string()));
@@ -173,7 +171,7 @@ pub fn apply_reducer(reducer: &Reducer, state: &RunState, arg: &Arg, segment_ind
             state
         }
 
-        Reducer::PushStringValue => {
+        Reducer::AppendStringValue => {
             let arg = arg.unwrap_user();
             let mut state = state.clone();
 
@@ -237,13 +235,13 @@ pub fn apply_reducer(reducer: &Reducer, state: &RunState, arg: &Arg, segment_ind
             state
         }
 
-        Reducer::SetSelectedIndex(index) => {
+        Reducer::SetSelectedIndex => {
             let mut state = state.clone();
-            state.selected_index = Some(*index);
+            state.selected_index = Some(context.command_index as isize);
             state
         }
 
-        Reducer::SetStringValue => {
+        Reducer::ResetStringValue => {
             let arg = arg.unwrap_user();
             let mut state = state.clone();
 
@@ -258,15 +256,17 @@ pub fn apply_reducer(reducer: &Reducer, state: &RunState, arg: &Arg, segment_ind
             state
         }
 
-        Reducer::UseHelp(index) => {
+        Reducer::UseHelp => {
             let mut state = state.clone();
-            state.options = vec![("-c".to_string(), OptionValue::String(format!("{}", *index)))];
+            state.selected_index = Some(HELP_COMMAND_INDEX);
+            state.options = vec![("--command-index".to_string(), OptionValue::String(format!("{}", context.command_index)))];
+            state.positionals.clear();
             state
         }
 
-        Reducer::SetCandidateState(partial) => {
+        Reducer::SetRequiredOptions(options) => {
             let mut state = state.clone();
-            state.apply_some(partial.clone());
+            state.required_options = options.clone();
             state
         }
 
@@ -286,55 +286,67 @@ fn is_valid_option(option: &str) -> bool {
     }
 }
 
-pub fn apply_check(check: &Check, state: &RunState, arg: &Arg, _segment_index: usize) -> bool {
+pub fn apply_check(check: &Check, context: &MachineContext, state: &RunState, arg: &Arg, _segment_index: usize) -> bool {
     match check {
         Check::Always => true,
 
-        Check::IsBatchOption(options) => {
-            let arg = arg.unwrap_user();
-            !state.ignore_options && arg.starts_with('-') && arg.len() > 2 && arg.chars().skip(1).all(|c| c.is_ascii_alphanumeric() && options.contains(&format!("-{}", &c.to_string())))
-        }
-
-        Check::IsBoundOption(options) => {
+        Check::IsBatchOption => {
             let arg = arg.unwrap_user();
 
-            !state.ignore_options && arg.find('=').map_or(false, |i| {
-                options.contains(arg.split_at(i).0)
+            !state.ignore_options && arg.starts_with('-') && arg.len() > 2 && arg.chars().skip(1).all(|c| {
+                c.is_ascii_alphanumeric() && context.preferred_names.contains_key(&format!("-{}", &c.to_string()))
             })
         }
 
-        Check::IsExact(needle) => {
+        Check::IsBoundOption => {
             let arg = arg.unwrap_user();
+
+            !state.ignore_options && arg.find('=').map_or(false, |i| {
+                context.preferred_names.get(arg.split_at(i).0).map_or(false, |preferred_name| {
+                    context.valid_bindings.contains(preferred_name)
+                })
+            })
+        }
+
+        Check::IsExactOption(needle) => {
+            let arg = arg.unwrap_user();
+
             !state.ignore_options && arg == needle
         }
 
         Check::IsHelp => {
             let arg = arg.unwrap_user();
+
             !state.ignore_options && (arg == "--help" || arg == "-h" || arg.starts_with("--help="))
         }
 
-        Check::IsExactString(needle) => {
+        Check::IsNegatedOption(needle) => {
             let arg = arg.unwrap_user();
-            !state.ignore_options && arg == needle.as_str()
+
+            !state.ignore_options && arg.starts_with("--no-") && &arg[5..] == &needle[2..]
         }
 
         Check::IsNotOptionLike => {
             let arg = arg.unwrap_user();
+
             state.ignore_options || arg == "-" || !arg.starts_with('-')
         }
 
         Check::IsOptionLike => {
             let arg = arg.unwrap_user();
+
             !state.ignore_options && arg != "-" && arg.starts_with('-')
         }
 
-        Check::IsUnsupportedOption(options) => {
+        Check::IsUnsupportedOption => {
             let arg = arg.unwrap_user();
-            !state.ignore_options && arg.starts_with("-") && is_valid_option(arg) && !options.contains(arg)
+
+            !state.ignore_options && arg.starts_with("-") && is_valid_option(arg) && !context.preferred_names.contains_key(arg)
         }
 
         Check::IsInvalidOption => {
             let arg = arg.unwrap_user();
+
             !state.ignore_options && arg.starts_with("-") && !is_valid_option(arg)
         }
     }

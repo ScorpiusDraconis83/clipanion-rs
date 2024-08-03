@@ -1,6 +1,6 @@
 use partially::Partial;
 
-use crate::{actions::{apply_check, apply_reducer}, errors::Error, machine::Machine, shared::{Arg, ERROR_NODE_ID, HELP_COMMAND_INDEX, INITIAL_NODE_ID}};
+use crate::{actions::{apply_check, apply_reducer}, errors::Error, machine::{Machine, MachineContext}, shared::{Arg, ERROR_NODE_ID, HELP_COMMAND_INDEX, INITIAL_NODE_ID}};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
@@ -48,7 +48,7 @@ pub enum Positional {
 #[partially(derive(Debug, Default, Clone, PartialEq, Eq))]
 pub struct RunState {
     pub candidate_usage: String,
-    pub required_options: Vec<Vec<String>>,
+    pub required_options: Vec<String>,
     pub error_message: String,
     pub ignore_options: bool,
     pub options: Vec<(String, OptionValue)>,
@@ -66,10 +66,10 @@ struct RunBranch {
 }
 
 impl RunBranch {
-    pub fn apply_transition(&self, transition: &crate::transition::Transition, segment: &Arg, segment_index: usize) -> RunBranch {
+    pub fn apply_transition(&self, transition: &crate::transition::Transition, context: &MachineContext, segment: &Arg, segment_index: usize) -> RunBranch {
         RunBranch {
             node_id: transition.to,
-            state: apply_reducer(&transition.reducer, &self.state, segment, segment_index),
+            state: apply_reducer(&transition.reducer, context, &self.state, segment, segment_index),
         }
     }
 }
@@ -92,9 +92,9 @@ fn select_best_state(input: &Vec<&str>, mut states: Vec<RunState>) -> Result<Run
         panic!("No terminal states found");
     }
 
-    states.retain(|s| s.selected_index == Some(HELP_COMMAND_INDEX) || s.required_options.iter().all(|names| {
-        names.iter().any(|name| s.options.iter().any(|(k, _)| k == name))
-    }));
+    states.retain(|s| {
+        s.selected_index == Some(HELP_COMMAND_INDEX) || s.required_options.is_empty()
+    });
 
     if states.is_empty() {
         return Err(Error::UnknownSyntax("Internal error".to_string()));
@@ -226,11 +226,14 @@ fn run_machine_internal(machine: &Machine, input: &Vec<&str>, partial: bool) -> 
                 continue;
             }
 
-            let has_exact_match = machine.nodes[branch.node_id].statics.contains_key(arg);
+            let node = &machine.nodes[branch.node_id];
+            let context = &machine.contexts[node.context];
+
+            let has_exact_match = node.statics.contains_key(arg);
             if !partial || t < args.len() - 1 || has_exact_match {
                 if has_exact_match {
-                    for transition in &machine.nodes[branch.node_id].statics[arg] {
-                        next_branches.push(branch.apply_transition(transition, arg, t.wrapping_sub(1)));
+                    for transition in &node.statics[arg] {
+                        next_branches.push(branch.apply_transition(transition, context, arg, t.wrapping_sub(1)));
                     }
                 }
             } else {
@@ -239,16 +242,16 @@ fn run_machine_internal(machine: &Machine, input: &Vec<&str>, partial: bool) -> 
                         continue;
                     }
 
-                    for transition in &machine.nodes[branch.node_id].statics[candidate] {
-                        next_branches.push(branch.apply_transition(transition, arg, t - 1));
+                    for transition in &node.statics[candidate] {
+                        next_branches.push(branch.apply_transition(transition, context, arg, t - 1));
                     }
                 }
             }
 
             if !is_eoi {
-                for (check, transition) in &machine.nodes[branch.node_id].dynamics {
-                    if apply_check(check, &branch.state, &arg, t - 1) {
-                        next_branches.push(branch.apply_transition(transition, arg, t - 1));
+                for (check, transition) in &node.dynamics {
+                    if apply_check(check, context, &branch.state, &arg, t - 1) {
+                        next_branches.push(branch.apply_transition(transition, context, arg, t - 1));
                     }
                 }
             }

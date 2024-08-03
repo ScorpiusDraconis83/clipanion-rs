@@ -4,6 +4,7 @@ use crate::{actions::Check, shared::Arg, transition::Transition};
 
 #[derive(Debug, Default, Clone)]
 pub struct Node {
+    pub context: usize,
     pub dynamics: Vec<(Check, Transition)>,
     pub shortcuts: Vec<Transition>,
     pub statics: HashMap<Arg, Vec<Transition>>,

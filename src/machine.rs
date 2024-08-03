@@ -1,8 +1,17 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::{actions::{Check, Reducer}, node::Node, shared::{is_terminal_node, Arg, CUSTOM_NODE_ID, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, transition::Transition};
 
+#[derive(Debug, Default)]
+pub struct MachineContext {
+    pub command_index: usize,
+    pub command_usage: String,
+    pub preferred_names: HashMap<String, String>,
+    pub valid_bindings: HashSet<String>,
+}
+
 pub struct Machine {
+    pub contexts: Vec<MachineContext>,
     pub nodes: Vec<Node>,
 }
 
@@ -39,6 +48,7 @@ impl std::fmt::Debug for Machine {
 impl Default for Machine {
     fn default() -> Machine {
         let mut default = Machine {
+            contexts: vec![MachineContext::default()],
             nodes: vec![],
         };
 
@@ -57,24 +67,21 @@ impl Machine {
 
     pub fn new_any_of<I>(machines: I) -> Machine where I: IntoIterator<Item = Machine> {
         let mut out = Machine::new();
-        let mut heads = vec![];
-
-        let mut offset = out.nodes.len();
 
         for machine in machines {
-            heads.push(offset);
+            let context_offset = out.contexts.len();
+            let node_offset = out.nodes.len();
+
+            out.contexts.extend(machine.contexts);
+            out.register_shortcut(INITIAL_NODE_ID, node_offset, Reducer::None);
 
             for id in 0..machine.nodes.len() {
                 if !is_terminal_node(id) {
-                    out.nodes.push(machine.nodes[id].clone_to_offset(offset));
+                    let mut cloned_node = machine.nodes[id].clone_to_offset(node_offset);
+                    cloned_node.context += context_offset;
+                    out.nodes.push(cloned_node);
                 }
             }
-
-            offset += machine.nodes.len() - CUSTOM_NODE_ID + 1;
-        }
-
-        for head in heads {
-            out.register_shortcut(INITIAL_NODE_ID, head, Reducer::None);
         }
 
         out
