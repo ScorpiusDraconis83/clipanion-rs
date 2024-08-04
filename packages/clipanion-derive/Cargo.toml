@@ -1,0 +1,16 @@
+[package]
+name = "clipanion-derive"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "A simple but powerful CLI framework"
+
+[dependencies]
+indoc = "2.0.5"
+proc-macro2 = "1.0"
+quote = "1.0"
+regex = "1.10.6"
+syn = { version = "2.0.72", features = ["full"] }
+
+[lib]
+proc-macro = true

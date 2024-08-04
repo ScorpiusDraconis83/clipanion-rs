@@ -57,20 +57,23 @@ pub fn apply_reducer(reducer: &Reducer, context: &MachineContext, state: &RunSta
             for t in 1..arg.len() {
                 let name = format!("-{}", &arg[t..t + 1]);
 
+                let preferred_name
+                    = context.preferred_names.get(&name).unwrap();
+
                 let slice = match t == 1 {
                     true => (0, 2),
                     false => (t, t + 1),
                 }; 
 
                 state.options.push((
-                    name.clone(),
+                    preferred_name.clone(),
                     OptionValue::Bool(true),
                 ));
 
                 state.tokens.push(Token::Option {
                     segment_index,
                     slice: Some(slice),
-                    option: name,
+                    option: preferred_name.clone(),
                 });
             }
 

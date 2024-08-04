@@ -1,6 +1,11 @@
-[package]
-name = "clipanion"
-version = "0.1.0"
-edition = "2021"
-license = "MIT"
-description = "A simple but powerful CLI framework"
+[workspace]
+resolver = "2"
+members = [
+    "packages/clipanion-core",
+    "packages/clipanion-demo",
+    "packages/clipanion-derive",
+    "packages/clipanion",
+]
+
+[profile.bench]
+debug = true

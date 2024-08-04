@@ -80,7 +80,7 @@ fn trim_smaller_branches(branches: &mut Vec<RunBranch>) {
     branches.retain(|b| b.state.path.len() == max_path_size);
 }
 
-fn select_best_state(input: &Vec<&str>, mut states: Vec<RunState>) -> Result<RunState, Error> {
+fn select_best_state(input: &Vec<String>, mut states: Vec<RunState>) -> Result<RunState, Error> {
     states.retain(|s| {
         s.selected_index.is_some()
     });
@@ -122,7 +122,6 @@ fn select_best_state(input: &Vec<&str>, mut states: Vec<RunState>) -> Result<Run
         .unwrap();
 
     states.retain(|s| {
-        println!("{:?} {}", s, get_fill_score(s));
         get_fill_score(s) == best_fill_score
     });
 
@@ -178,7 +177,7 @@ fn aggregate_help_states<I>(it: I) -> Vec<RunState> where I: Iterator<Item = Run
     not_helps
 }
 
-fn extract_error_from_branches(input: &Vec<&str>, branches: &Vec<RunBranch>, is_next: bool) -> Error {
+fn extract_error_from_branches(input: &Vec<String>, branches: &Vec<RunBranch>, is_next: bool) -> Error {
     if branches.len() == 0 {
         return Error::UnknownSyntax("Command not found, but we're not sure what's the alternative.".to_string());
     }
@@ -196,7 +195,7 @@ fn extract_error_from_branches(input: &Vec<&str>, branches: &Vec<RunBranch>, is_
     return Error::UnknownSyntax(format!("Command not found; did you mean one of:\n\n{}", branches.iter().map(|b| format!("$ {}", b.state.candidate_usage)).collect::<Vec<_>>().join("\n")));
 }
 
-fn run_machine_internal(machine: &Machine, input: &Vec<&str>, partial: bool) -> Result<Vec<RunBranch>, Error> {
+fn run_machine_internal(machine: &Machine, input: &Vec<String>, partial: bool) -> Result<Vec<RunBranch>, Error> {
     let mut args = vec![Arg::StartOfInput];
 
     args.extend(input.iter().map(|s| {
@@ -279,7 +278,7 @@ fn run_machine_internal(machine: &Machine, input: &Vec<&str>, partial: bool) -> 
     Ok(branches)
 }
 
-pub fn run_machine(machine: &Machine, input: &Vec<&str>) -> Result<RunState, Error> {
+pub fn run_machine(machine: &Machine, input: &Vec<String>) -> Result<RunState, Error> {
     let branches = run_machine_internal(machine, input, false)?;
 
     let states = branches.into_iter()
@@ -289,7 +288,7 @@ pub fn run_machine(machine: &Machine, input: &Vec<&str>) -> Result<RunState, Err
     select_best_state(input, states)
 }
 
-pub fn run_partial_machine(machine: &Machine, input: &Vec<&str>) -> Result<RunState, Error> {
+pub fn run_partial_machine(machine: &Machine, input: &Vec<String>) -> Result<RunState, Error> {
     let branches = run_machine_internal(machine, input, true)?;
 
     let states = branches.into_iter()

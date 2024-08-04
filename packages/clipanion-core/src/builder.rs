@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::{actions::{Check, Reducer}, errors::BuildError, machine::Machine, node::Node, shared::{Arg, ERROR_NODE_ID, HELP_COMMAND_INDEX, INITIAL_NODE_ID, SUCCESS_NODE_ID}};
+use crate::{actions::{Check, Reducer}, errors::BuildError, machine::Machine, node::Node, shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}};
 
 pub struct CliBuilder {
     pub commands: Vec<CommandBuilder>,
@@ -167,8 +167,8 @@ impl CommandBuilder {
         self
     }
 
-    pub fn add_path(&mut self, path: Vec<&str>) -> &mut Self {
-        self.paths.push(path.iter().map(|s| s.to_string()).collect());
+    pub fn add_path(&mut self, path: Vec<String>) -> &mut Self {
+        self.paths.push(path);
         self
     }
 
