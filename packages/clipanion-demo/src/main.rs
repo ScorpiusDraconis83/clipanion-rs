@@ -1,8 +1,8 @@
 use clipanion::cli;
 
-#[derive(Debug)]
 #[cli::command]
 #[cli::path("cp")]
+#[derive(Debug)]
 struct Cp {
     #[cli::option("-r,--recursive", help = "Copy directories recursively", initial = false)]
     recursive: bool,

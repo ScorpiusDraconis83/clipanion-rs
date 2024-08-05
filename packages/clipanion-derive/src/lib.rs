@@ -266,6 +266,10 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
     command_attribute_bag.expect_empty()?;
 
+    if !is_default && paths_lits.is_empty() {
+        return Err(syn::Error::new_spanned(input.ident, "The command must have a path"));
+    }
+
     if is_default {
         builder.push(quote! {
             builder.make_default();
@@ -397,7 +401,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
             if let Some(initial) = option_bag.attributes.take("initial") {
                 default_hydrater.push(quote! {
-                    #field_ident: #initial
+                    self.#field_ident = #initial;
                 });
             }
 
@@ -480,19 +484,13 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
     let struct_name = &input.ident;
 
     let expanded = quote! {
+        #[derive(Default)]
         #input
-
-        impl Default for #struct_name {
-            fn default() -> Self {
-                Self {
-                    #(#default_hydrater,)*
-                    ..Default::default()
-                }
-            }
-        }
 
         impl clipanion::details::CommandController for #struct_name {
             fn hydrate_cli_from_state(&mut self, state: clipanion::core::RunState) {
+                #(#default_hydrater)*
+
                 for option in state.options {
                     #(#option_hydrater)*
                 }
