@@ -4,26 +4,8 @@ use std::collections::HashMap;
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
-use quote::{quote, ToTokens};
-use syn::{parse::{Parse, ParseStream}, parse_macro_input, punctuated::Punctuated, Attribute, DeriveInput, Expr, Ident, Lit, LitBool, LitStr, Meta, Path, Token};
-
-macro_rules! matches_pattern {
-    ($pattern:pat) => {
-        |val| match val {
-            $pattern => true,
-            _ => false,
-        }
-    };
-}
-
-macro_rules! extract_match {
-    ($expression:path) => {
-        |val| match val {
-            $expression(value) => Some(value),
-            _ => None,
-        }
-    };
-}
+use quote::quote;
+use syn::{parse::{Parse, ParseStream}, parse_macro_input, punctuated::Punctuated, Attribute, DeriveInput, Ident, Lit, LitBool, LitStr, Meta, Path, Token};
 
 macro_rules! expect_lit {
     ($expression:path) => {
@@ -36,26 +18,6 @@ macro_rules! expect_lit {
 
 fn to_lit_str<T: AsRef<str>>(str: T) -> LitStr {
     LitStr::new(str.as_ref(), proc_macro2::Span::call_site())
-}
-
-#[derive(Debug, Clone)]
-enum AttributeValue {
-    String(String),
-    Boolean(bool),
-}
-
-impl From<Lit> for AttributeValue {
-    fn from(value: Lit) -> Self {
-        match value {
-            syn::Lit::Str(lit_str) =>
-                AttributeValue::String(lit_str.value()),
-
-            syn::Lit::Bool(lit_bool) =>
-                AttributeValue::Boolean(lit_bool.value),
-
-            _ => panic!("Unsupported expression type"),
-        }
-    }
 }
 
 #[derive(Clone, Default)]
@@ -425,7 +387,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
             });
 
             option_bag.attributes.expect_empty()?;
-        } else if let Some(mut positional_bag) = cli_attributes.take_unique::<AttributeBag>("positional")? {
+        } else if let Some(positional_bag) = cli_attributes.take_unique::<AttributeBag>("positional")? {
             let field_name_upper = field.ident.as_ref().unwrap()
                 .to_string()
                 .to_uppercase();

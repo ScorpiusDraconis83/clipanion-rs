@@ -80,7 +80,7 @@ fn trim_smaller_branches(branches: &mut Vec<RunBranch>) {
     branches.retain(|b| b.state.path.len() == max_path_size);
 }
 
-fn select_best_state(input: &Vec<String>, mut states: Vec<RunState>) -> Result<RunState, Error> {
+fn select_best_state(_input: &Vec<String>, mut states: Vec<RunState>) -> Result<RunState, Error> {
     states.retain(|s| {
         s.selected_index.is_some()
     });
@@ -177,7 +177,7 @@ fn aggregate_help_states<I>(it: I) -> Vec<RunState> where I: Iterator<Item = Run
     not_helps
 }
 
-fn extract_error_from_branches(input: &Vec<String>, branches: &Vec<RunBranch>, is_next: bool) -> Error {
+fn extract_error_from_branches(_input: &Vec<String>, branches: &Vec<RunBranch>, is_next: bool) -> Error {
     if branches.len() == 0 {
         return Error::UnknownSyntax("Command not found, but we're not sure what's the alternative.".to_string());
     }
