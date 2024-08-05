@@ -130,6 +130,10 @@ fn command_impl(mut input: DeriveInput) -> Result<TokenStream, syn::Error> {
     input.attrs = remaining_attributes;
 
     let mut builder = vec![];
+
+    let mut option_hydrater = vec![];
+    let mut positional_hydrater = vec![];
+    
     let mut has_path = false;
 
     for command_attribute in &command_attributes {
@@ -161,6 +165,8 @@ fn command_impl(mut input: DeriveInput) -> Result<TokenStream, syn::Error> {
     }
 
     for field in &mut struct_input.fields {
+        let field_ident = &field.ident;
+
         let mut option_attributes = vec![];
         let mut remaining_attributes = vec![];
 
@@ -192,10 +198,12 @@ fn command_impl(mut input: DeriveInput) -> Result<TokenStream, syn::Error> {
         for option_attribute in &option_attributes {
             match option_attribute {
                 OptionAttribute::Option(name_set) => {
+                    let mut is_bool = false;
                     let mut arity = 1;
 
                     if let syn::Type::Path(type_path) = &field_type {
                         if &type_path.path.segments[0].ident == "bool" {
+                            is_bool = true;
                             arity = 0;
                         }
                     }
@@ -215,6 +223,33 @@ fn command_impl(mut input: DeriveInput) -> Result<TokenStream, syn::Error> {
                     let name_set_literals = name_set.iter()
                         .map(|s| LitStr::new(s, proc_macro2::Span::call_site()))
                         .collect::<Vec<_>>();
+
+                    let preferred_name_lit = name_set.iter()
+                        .max_by_key(|s| s.len())
+                        .map(|s| LitStr::new(s, proc_macro2::Span::call_site()))
+                        .unwrap();
+
+                    let value_type = if arity > 0 {
+                        quote! {Array}
+                    } else if is_bool {
+                        quote! {Bool}
+                    } else {
+                        quote! {String}
+                    };
+
+                    let value_creator = match is_option_type {
+                        true => quote! {Some(value)},
+                        false => quote! {value},
+                    };
+
+                    option_hydrater.push(quote! {
+                        if option.0.as_str() == #preferred_name_lit {
+                            if let clipanion::core::OptionValue::#value_type(value) = option.1 {
+                                self.#field_ident = #value_creator;
+                                continue;
+                            }
+                        }
+                    });
 
                     builder.push(quote! {
                         builder.add_option(clipanion::core::OptionDefinition {
@@ -244,16 +279,47 @@ fn command_impl(mut input: DeriveInput) -> Result<TokenStream, syn::Error> {
                         .any(matches_pattern!(OptionAttribute::Proxy));
 
                     if is_proxy {
+                        positional_hydrater.push(quote! {
+                            if let clipanion::core::Positional::Rest(value) = positional {
+                                self.#field_ident.push(value);
+                                continue;
+                            }
+                        });
+
                         builder.push(quote! {
-                            builder.add_proxy(#field_name_upper);
+                            builder.add_proxy(#field_name_upper)?;
                         });
                     } else if is_rest {
+                        positional_hydrater.push(quote! {
+                            if let clipanion::core::Positional::Rest(value) = positional {
+                                self.#field_ident.push(value);
+                                continue;
+                            }
+                        });
+
                         builder.push(quote! {
-                            builder.add_rest(#field_name_upper);
+                            builder.add_rest(#field_name_upper)?;
                         });
                     } else {
+                        let value_creator = match is_option_type {
+                            true => quote! {Some(value)},
+                            false => quote! {value},
+                        };
+
+                        positional_hydrater.push(quote! {
+                            if let clipanion::core::Positional::Required(value) = positional {
+                                self.#field_ident = #value_creator;
+                                continue;
+                            }
+
+                            if let clipanion::core::Positional::Optional(value) = positional {
+                                self.#field_ident = #value_creator;
+                                continue;
+                            }
+                        });
+
                         builder.push(quote! {
-                            builder.add_positional(!#is_option_type, #field_name_upper);
+                            builder.add_positional(!#is_option_type, #field_name_upper)?;
                         });
                     }
                 },
@@ -269,6 +335,13 @@ fn command_impl(mut input: DeriveInput) -> Result<TokenStream, syn::Error> {
 
         impl clipanion::advanced::CommandController for #struct_name {
             fn hydrate_cli_from(&mut self, state: clipanion::core::RunState) {
+                for option in state.options {
+                    #(#option_hydrater)*
+                }
+
+                for positional in state.positionals {
+                    #(#positional_hydrater)*
+                }
             }
 
             fn compile(builder: &mut clipanion::core::CommandBuilder) -> Result<clipanion::core::Machine, clipanion::core::BuildError> {

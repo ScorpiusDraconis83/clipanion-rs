@@ -1,18 +1,25 @@
 use clipanion::command;
 
 #[command]
-#[cli::path("add", "foo")]
-struct AddCommand {
-    #[cli::option("-P,--peer")]
-    cli: bool,
+#[derive(Debug)]
+#[cli::path("cp")]
+struct CpCommand {
+    #[cli::option("-r,--recursive")]
+    recursive: bool,
+
+    #[cli::positional]
+    sources: Vec<String>,
+
+    #[cli::positional]
+    destination: String,
 }
 
-impl AddCommand {
+impl CpCommand {
     pub fn execute(&self) {
-        println!("AddCommand::execute()");
+        println!("{:?}", self);
     }
 }
 
 fn main() {
-    clipanion::new![AddCommand].run_default();
+    clipanion::new![CpCommand].run_default();
 }
