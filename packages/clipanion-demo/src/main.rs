@@ -1,25 +1,22 @@
-use clipanion::command;
+use clipanion::cli;
 
-#[command]
 #[derive(Debug)]
+#[cli::command]
 #[cli::path("cp")]
-struct CpCommand {
-    #[cli::option("-r,--recursive")]
+struct Cp {
+    #[cli::option("-r,--recursive", help = "Copy directories recursively", initial = false)]
     recursive: bool,
 
-    #[cli::positional]
     sources: Vec<String>,
-
-    #[cli::positional]
     destination: String,
 }
 
-impl CpCommand {
+impl Cp {
     pub fn execute(&self) {
         println!("{:?}", self);
     }
 }
 
 fn main() {
-    clipanion::new![CpCommand].run_default();
+    clipanion::new![Cp].run_default();
 }
