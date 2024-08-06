@@ -6,6 +6,6 @@ license = "MIT"
 description = "A simple but powerful CLI framework"
 
 [dependencies]
-clipanion-core = { path = "../clipanion-core", version = "0.1.0" }
-clipanion-derive = { path = "../clipanion-derive", version = "0.1.0" }
+clipanion-core = { path = "../clipanion-core", version = "0.2.0" }
+clipanion-derive = { path = "../clipanion-derive", version = "0.2.0" }
 colored = "2.1.0"
