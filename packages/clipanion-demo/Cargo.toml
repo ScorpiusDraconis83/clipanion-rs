@@ -7,3 +7,4 @@ description = "A simple but powerful CLI framework"
 
 [dependencies]
 clipanion = { path = "../clipanion" }
+thiserror = "1.0.63"

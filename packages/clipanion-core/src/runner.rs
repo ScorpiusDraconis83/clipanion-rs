@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::{actions::{apply_check, apply_reducer}, errors::Error, machine::{Machine, MachineContext}, shared::{Arg, ERROR_NODE_ID, HELP_COMMAND_INDEX, INITIAL_NODE_ID}};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,15 +46,16 @@ pub enum Positional {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct RunState {
-    pub candidate_usage: String,
+    pub candidate_index: usize,
     pub required_options: Vec<String>,
     pub error_message: String,
     pub ignore_options: bool,
+    pub is_help: bool,
     pub options: Vec<(String, OptionValue)>,
     pub path: Vec<String>,
     pub positionals: Vec<Positional>,
     pub remainder: Option<String>,
-    pub selected_index: Option<isize>,
+    pub selected_index: Option<usize>,
     pub tokens: Vec<Token>,
 }
 
@@ -94,7 +97,7 @@ fn select_best_state(_input: &Vec<String>, mut states: Vec<RunState>) -> Result<
     });
 
     if states.is_empty() {
-        return Err(Error::UnknownSyntax("Internal error".to_string()));
+        return Err(Error::InternalError);
     }
 
     let max_path_size = states.iter()
@@ -129,7 +132,11 @@ fn select_best_state(_input: &Vec<String>, mut states: Vec<RunState>) -> Result<
         = aggregate_help_states(states.into_iter());
 
     if aggregated_states.len() > 1 {
-        return Err(Error::AmbiguousSyntax);
+        let candidate_commands = aggregated_states.iter()
+            .map(|s| s.selected_index.unwrap())
+            .collect::<Vec<_>>();
+
+        return Err(Error::AmbiguousSyntax(candidate_commands));
     }
 
     Ok(std::mem::take(aggregated_states.first_mut().unwrap()))
@@ -177,22 +184,23 @@ fn aggregate_help_states<I>(it: I) -> Vec<RunState> where I: Iterator<Item = Run
     not_helps
 }
 
-fn extract_error_from_branches(_input: &Vec<String>, branches: &Vec<RunBranch>, is_next: bool) -> Error {
-    if branches.len() == 0 {
-        return Error::UnknownSyntax("Command not found, but we're not sure what's the alternative.".to_string());
+fn extract_error_from_branches(_input: &Vec<String>, mut branches: Vec<RunBranch>, is_next: bool) -> Error {
+    if is_next {
+        if let Some(lead) = branches.pop() {
+            if branches.iter().all(|b| b.state.error_message == lead.state.error_message) {
+                return Error::Custom(lead.state.candidate_index, lead.state.error_message);
+            }
+        }
     }
 
-    let lead = branches.first().unwrap();
+    let candidate_indices = branches.iter()
+        .filter(|b| b.node_id != ERROR_NODE_ID)
+        .map(|b| b.state.candidate_index)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
 
-    if is_next && branches.iter().all(|b| b.state.error_message == lead.state.error_message) {
-        return Error::UnknownSyntax(format!("{}\n\n{}", &lead.state.error_message, branches.iter().map(|b| format!("$ {}", b.state.candidate_usage)).collect::<Vec<_>>().join("\n")));
-    }
-
-    if branches.len() == 1 {
-        return Error::UnknownSyntax(format!("Command not found; did you mean:\n\n$ {}", lead.state.candidate_usage));
-    }
-
-    return Error::UnknownSyntax(format!("Command not found; did you mean one of:\n\n{}", branches.iter().map(|b| format!("$ {}", b.state.candidate_usage)).collect::<Vec<_>>().join("\n")));
+    Error::NotFound(candidate_indices)
 }
 
 fn run_machine_internal(machine: &Machine, input: &Vec<String>, partial: bool) -> Result<Vec<RunBranch>, Error> {
@@ -264,11 +272,11 @@ fn run_machine_internal(machine: &Machine, input: &Vec<String>, partial: bool) -
         }
 
         if next_branches.is_empty() {
-            return Err(extract_error_from_branches(input, &branches, false));
+            return Err(extract_error_from_branches(input, branches, false));
         }
 
         if next_branches.iter().all(|b| b.node_id == ERROR_NODE_ID) {
-            return Err(extract_error_from_branches(input, &next_branches, true));
+            return Err(extract_error_from_branches(input, next_branches, true));
         }
 
         branches = next_branches;

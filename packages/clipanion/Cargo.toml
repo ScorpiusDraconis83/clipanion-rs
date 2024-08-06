@@ -8,3 +8,4 @@ description = "A simple but powerful CLI framework"
 [dependencies]
 clipanion-core = { path = "../clipanion-core", version = "0.1.0" }
 clipanion-derive = { path = "../clipanion-derive", version = "0.1.0" }
+colored = "2.1.0"

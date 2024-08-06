@@ -1,4 +1,12 @@
+use std::process::ExitCode;
+
 use clipanion::cli;
+
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error("Oh no! Something bad happened!")]
+    ArbitraryError,
+}
 
 #[cli::command]
 #[cli::path("cp")]
@@ -17,6 +25,16 @@ impl Cp {
     }
 }
 
-fn main() {
-    clipanion::new![Cp].run_default();
+#[cli::command]
+#[cli::path("unimplemented")]
+struct Unimplemented {}
+
+impl Unimplemented {
+    pub fn execute(&self) -> Result<(), Error> {
+        Err(Error::ArbitraryError)
+    }
+}
+
+fn main() -> ExitCode {
+    clipanion::new![Cp, Unimplemented].run_default()
 }

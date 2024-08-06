@@ -4,8 +4,6 @@ use crate::{actions::{Check, Reducer}, node::Node, shared::{is_terminal_node, Ar
 
 #[derive(Debug, Default)]
 pub struct MachineContext {
-    pub command_index: usize,
-    pub command_usage: String,
     pub preferred_names: HashMap<String, String>,
     pub valid_bindings: HashSet<String>,
 }

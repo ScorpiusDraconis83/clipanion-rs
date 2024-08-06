@@ -11,6 +11,7 @@ pub use builder::*;
 pub use errors::*;
 pub use machine::Machine;
 pub use runner::{OptionValue, Positional, RunState, run_machine, run_partial_machine};
+pub use shared::HELP_COMMAND_INDEX;
 
 #[test]
 fn it_should_select_the_default_command_when_using_no_arguments() {

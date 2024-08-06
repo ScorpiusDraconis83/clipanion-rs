@@ -1,7 +1,10 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    AmbiguousSyntax,
-    UnknownSyntax(String),
+    AmbiguousSyntax(Vec<usize>),
+    Custom(usize, String),
+    UnknownSyntax(usize, String),
+    InternalError,
+    NotFound(Vec<usize>),
 }
 
 #[derive(Debug)]

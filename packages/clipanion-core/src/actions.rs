@@ -13,11 +13,11 @@ pub enum Reducer {
     PushPositional,
     PushRest,
     AppendStringValue,
+    InitializeState(usize, Vec<String>),
     PushTrue(String),
-    SetRequiredOptions(Vec<String>),
     SetError(String),
     SetOptionArityError,
-    SetSelectedIndex,
+    AcceptState,
     ResetStringValue,
     UseHelp,
 }
@@ -236,9 +236,9 @@ pub fn apply_reducer(reducer: &Reducer, context: &MachineContext, state: &RunSta
             state
         }
 
-        Reducer::SetSelectedIndex => {
+        Reducer::AcceptState => {
             let mut state = state.clone();
-            state.selected_index = Some(context.command_index as isize);
+            state.selected_index = Some(state.candidate_index);
             state
         }
 
@@ -260,14 +260,15 @@ pub fn apply_reducer(reducer: &Reducer, context: &MachineContext, state: &RunSta
         Reducer::UseHelp => {
             let mut state = state.clone();
             state.selected_index = Some(HELP_COMMAND_INDEX);
-            state.options = vec![("--command-index".to_string(), OptionValue::String(format!("{}", context.command_index)))];
+            state.options = vec![("--command-index".to_string(), OptionValue::String(format!("{}", state.candidate_index)))];
             state.positionals.clear();
             state
         }
 
-        Reducer::SetRequiredOptions(options) => {
+        Reducer::InitializeState(candidate_index, required_options) => {
             let mut state = state.clone();
-            state.required_options = options.clone();
+            state.candidate_index = *candidate_index;
+            state.required_options = required_options.clone();
             state
         }
 

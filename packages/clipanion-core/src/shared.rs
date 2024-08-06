@@ -22,7 +22,7 @@ impl Arg {
     }
 }
 
-pub const HELP_COMMAND_INDEX: isize = -1;
+pub const HELP_COMMAND_INDEX: usize = usize::MAX;
 
 pub const INITIAL_NODE_ID: usize = 0;
 pub const SUCCESS_NODE_ID: usize = 1;

@@ -244,43 +244,6 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
         });
     }
 
-    // let mut has_path = false;
-    // let mut has_explicit_positionals = false;
-
-    // for command_attribute in &command_attributes {
-    //     match command_attribute {
-    //         CommandAttribute::Default => {
-    //             builder.push(quote! {
-    //                 builder.make_default();
-    //             });
-
-    //             has_path = true;
-    //         },
-
-    //         CommandAttribute::ExplicitPositionals => {
-    //             builder.push(quote! {
-    //                 has_explicit_positionals = true;
-    //             });
-    //         },
-
-    //         CommandAttribute::Path(path) => {
-    //             let path_literals = path.iter()
-    //                 .map(|s| LitStr::new(s, proc_macro2::Span::call_site()))
-    //                 .collect::<Vec<_>>();
-
-    //             builder.push(quote! {
-    //                 builder.add_path(vec![#(#path_literals.to_string()),*]);
-    //             });
-
-    //             has_path = true;
-    //         },
-    //     }
-    // }
-
-    // if !has_path {
-    //     return Err(syn::Error::new_spanned(input, "The command must have a path"));
-    // }
-
     for field in &mut struct_input.fields {
         let field_ident = &field.ident;
 
@@ -450,7 +413,21 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
         #input
 
         impl clipanion::details::CommandController for #struct_name {
-            fn hydrate_cli_from_state(&mut self, state: clipanion::core::RunState) {
+            fn command_usage(opts: clipanion::core::CommandUsageOptions) -> Result<clipanion::core::CommandUsageResult, clipanion::core::BuildError> {
+                let mut cli_builder = clipanion::core::CliBuilder::new();
+                let mut builder = cli_builder.add_command();
+
+                #(#builder)*
+
+                Ok(builder.usage(opts))
+            }
+
+            fn attach_command_to_cli(builder: &mut clipanion::core::CommandBuilder) -> Result<(), clipanion::core::BuildError> {
+                #(#builder)*
+                Ok(())
+            }
+
+            fn hydrate_command_from_state(&mut self, state: clipanion::core::RunState) {
                 #(#default_hydrater)*
 
                 for option in state.options {
@@ -460,12 +437,6 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 for positional in state.positionals {
                     #(#positional_hydrater)*
                 }
-            }
-
-            fn compile_cli_to_state_machine(builder: &mut clipanion::core::CommandBuilder) -> Result<clipanion::core::Machine, clipanion::core::BuildError> {
-                let mut machine = clipanion::core::Machine::new();
-                #(#builder)*
-                Ok(machine)
             }
         }
     };

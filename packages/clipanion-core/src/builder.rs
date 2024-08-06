@@ -78,6 +78,11 @@ pub struct CommandUsageOptions {
     pub inline_options: bool,
 }
 
+pub struct CommandUsageResult {
+    pub usage: String,
+    pub detailed_option_list: Vec<OptionUsage>,
+}
+
 pub struct OptionUsage {
     pub preferred_name: String,
     pub name_set: Vec<String>,
@@ -108,7 +113,7 @@ impl CommandBuilder {
         }
     }
 
-    pub fn usage(&self, opts: CommandUsageOptions) -> (String, Vec<OptionUsage>) {
+    pub fn usage(&self, opts: CommandUsageOptions) -> CommandUsageResult {
         let mut segments = self.paths.first().cloned().unwrap_or_default();
         let mut detailed_option_list = vec![];
 
@@ -159,7 +164,10 @@ impl CommandBuilder {
             segments.push(format!("<{}>", name));
         }
 
-        (segments.join(" "), detailed_option_list)
+        CommandUsageResult {
+            usage: segments.join(" "),
+            detailed_option_list,
+        }
     }
 
     pub fn make_default(&mut self) -> &mut Self {
@@ -242,18 +250,12 @@ impl CommandBuilder {
 
         let context = &mut machine.contexts[0];
 
-        context.command_index = self.cli_index;
         context.preferred_names = self.preferred_names.clone();
         context.valid_bindings = self.valid_bindings.clone();
 
-        context.command_usage = self.usage(CommandUsageOptions {
-            detailed: false,
-            inline_options: true,
-        }).0;
-
         let first_node_id = machine.inject_node(Node::new());
 
-        machine.register_static(INITIAL_NODE_ID, Arg::StartOfInput, first_node_id, Reducer::SetRequiredOptions(self.required_options.clone()));
+        machine.register_static(INITIAL_NODE_ID, Arg::StartOfInput, first_node_id, Reducer::InitializeState(self.cli_index, self.required_options.clone()));
 
         let positional_argument = match self.arity.proxy {
             true => Check::Always,
@@ -299,7 +301,7 @@ impl CommandBuilder {
 
             if self.arity.leading.len() > 0 {
                 machine.register_static(last_path_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
-                machine.register_static(last_path_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
+                machine.register_static(last_path_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
             }
 
             let mut last_leading_node_id = last_path_node_id;
@@ -312,7 +314,7 @@ impl CommandBuilder {
 
                 if self.arity.trailing.len() > 0 || t + 1 != self.arity.leading.len() {
                     machine.register_static(next_leading_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
-                    machine.register_static(next_leading_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
+                    machine.register_static(next_leading_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
                 }
 
                 machine.register_dynamic(last_leading_node_id, Check::IsNotOptionLike, next_leading_node_id, Reducer::PushPositional);
@@ -353,7 +355,7 @@ impl CommandBuilder {
 
             if self.arity.trailing.len() > 0 {
                 machine.register_static(last_extra_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
-                machine.register_static(last_extra_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
+                machine.register_static(last_extra_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
             }
 
             let mut last_trailing_node_id = last_extra_node_id;
@@ -366,7 +368,7 @@ impl CommandBuilder {
 
                 if t + 1 < self.arity.trailing.len() {
                     machine.register_static(next_trailing_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
-                    machine.register_static(next_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
+                    machine.register_static(next_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
                 }
 
                 machine.register_dynamic(last_trailing_node_id, Check::IsNotOptionLike, next_trailing_node_id, Reducer::PushPositional);
@@ -374,8 +376,8 @@ impl CommandBuilder {
             }
 
             machine.register_dynamic(last_trailing_node_id, positional_argument.clone(), ERROR_NODE_ID, Reducer::SetError("Extraneous positional argument".to_string()));
-            machine.register_static(last_trailing_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
-            machine.register_static(last_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::SetSelectedIndex);
+            machine.register_static(last_trailing_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::AcceptState);
+            machine.register_static(last_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
         }
 
         machine
