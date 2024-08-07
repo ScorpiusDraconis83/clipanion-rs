@@ -11,11 +11,11 @@ pub mod format;
 pub mod details;
 
 #[macro_export]
-macro_rules! new {
-    ($($command:ty),+ $(,)?) => { {
-        struct CommandSet {};
+macro_rules! program {
+    ($name:ident, [ $($command:ty),* $(,)? ]) => {
+        struct $name {}
 
-        impl clipanion::details::CommandSet for CommandSet {
+        impl clipanion::details::CommandSet for $name {
             fn command_usage(mut command_index: usize, opts: clipanion::core::CommandUsageOptions) -> Result<clipanion::core::CommandUsageResult, clipanion::core::BuildError> {
                 use clipanion::details::CommandController;
 
@@ -54,7 +54,7 @@ macro_rules! new {
                 $({
                     if command_index == 0 {
                         let mut command = <$command>::default();
-                        command.hydrate_command_from_state(state);
+                        command.hydrate_command_from_state(info, state);
                         return command.execute().into();
                     } else {
                         command_index -= 1;
@@ -63,8 +63,6 @@ macro_rules! new {
 
                 std::unreachable!();
             }
-        };
-
-        clipanion::advanced::Cli::<CommandSet>::new()
-    } };
+        }
+    };
 }

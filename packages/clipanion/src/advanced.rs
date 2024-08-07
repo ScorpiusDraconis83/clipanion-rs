@@ -6,6 +6,8 @@ use crate::{details::CommandSet, format::Formatter};
  * Used to define the properties of the CLI. In general you can ignore this and
  * just use the `run_with_default()` function instead.
  */
+
+#[derive(Debug, Clone)]
 pub struct Info {
     pub argv: Vec<String>,
     pub program_name: String,
@@ -13,6 +15,12 @@ pub struct Info {
     pub version: String,
     pub about: String,
     pub colorized: bool,
+}
+
+impl Info {
+    pub fn with_argv(&self, argv: Vec<String>) -> Self {
+        Self {argv, ..self.clone()}
+    }
 }
 
 impl Default for Info {
@@ -33,26 +41,19 @@ impl Default for Info {
     }
 }
 
-pub struct Cli<S> {
-    builder: clipanion_core::CliBuilder,
-    phantom: std::marker::PhantomData<S>,
+pub trait Cli {
+    fn run(info: Info) -> std::process::ExitCode;
+    fn run_default() -> std::process::ExitCode;
 }
 
-impl<S: CommandSet> Cli<S> {
-    pub fn new() -> Self {
-        let mut cli = Self {
-            builder: clipanion_core::CliBuilder::new(),
-            phantom: Default::default(),
-        };
+impl<S: CommandSet> Cli for S {
+    fn run(info: Info) -> std::process::ExitCode {
+        let mut builder = clipanion_core::CliBuilder::new();
 
-        S::register_to_cli_builder(&mut cli.builder)
+        S::register_to_cli_builder(&mut builder)
             .unwrap();
 
-        cli
-    }
-
-    pub fn run(&self, info: Info) -> std::process::ExitCode {
-        let machine = self.builder.compile();
+        let machine = builder.compile();
 
         let parse_result
             = clipanion_core::run_machine(&machine, &info.argv);
@@ -79,7 +80,7 @@ impl<S: CommandSet> Cli<S> {
         command_result.exit_code
     }
 
-    pub fn run_default(&self) -> std::process::ExitCode {
-        self.run(Default::default())
+    fn run_default() -> std::process::ExitCode {
+        Self::run(Default::default())
     }
 }

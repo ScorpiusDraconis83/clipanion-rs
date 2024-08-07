@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
-use syn::{parse::{Parse, ParseStream}, parse_macro_input, punctuated::Punctuated, Attribute, DeriveInput, Ident, Lit, LitBool, LitStr, Meta, Path, Token};
+use syn::{parse::{Parse, ParseStream}, parse_macro_input, punctuated::Punctuated, Attribute, DeriveInput, Fields, Ident, Lit, LitBool, LitStr, Meta, Path, Token};
 
 macro_rules! expect_lit {
     ($expression:path) => {
@@ -244,6 +244,12 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
         });
     }
 
+    let has_path = struct_input.fields.iter()
+        .any(|field| field.ident.as_ref().unwrap().to_string() == "paths");
+
+    let has_info = struct_input.fields.iter()
+        .any(|field| field.ident.as_ref().unwrap().to_string() == "info");
+
     for field in &mut struct_input.fields {
         let field_ident = &field.ident;
 
@@ -406,6 +412,16 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
         }
     }
 
+    if let Fields::Named(fields) = &mut struct_input.fields {
+        fields.named.push(syn::parse_quote! {cli_path: Vec<String>});
+        fields.named.push(syn::parse_quote! {cli_info: clipanion::advanced::Info});
+    }
+
+    default_hydrater.push(quote! {
+        self.cli_path = vec![];
+        self.cli_info = info.clone();
+    });
+
     let struct_name = &input.ident;
 
     let expanded = quote! {
@@ -427,7 +443,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 Ok(())
             }
 
-            fn hydrate_command_from_state(&mut self, state: clipanion::core::RunState) {
+            fn hydrate_command_from_state(&mut self, info: &Info, state: clipanion::core::RunState) {
                 #(#default_hydrater)*
 
                 for option in state.options {

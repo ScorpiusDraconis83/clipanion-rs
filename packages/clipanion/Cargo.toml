@@ -1,11 +1,11 @@
 [package]
 name = "clipanion"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 description = "A simple but powerful CLI framework"
 
 [dependencies]
-clipanion-core = { path = "../clipanion-core", version = "0.2.0" }
-clipanion-derive = { path = "../clipanion-derive", version = "0.2.0" }
+clipanion-core = { path = "../clipanion-core", version = "0.4.0" }
+clipanion-derive = { path = "../clipanion-derive", version = "0.4.0" }
 colored = "2.1.0"

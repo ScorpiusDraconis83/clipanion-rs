@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "clipanion"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clipanion-core",
  "clipanion-derive",
@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "clipanion-core"
-version = "0.2.0"
+version = "0.4.0"
 
 [[package]]
 name = "clipanion-demo"
@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "clipanion-derive"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "indoc",
  "proc-macro2",
