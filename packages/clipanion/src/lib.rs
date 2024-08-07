@@ -13,7 +13,7 @@ pub mod details;
 #[macro_export]
 macro_rules! program {
     ($name:ident, [ $($command:ty),* $(,)? ]) => {
-        struct $name {}
+        pub struct $name {}
 
         impl clipanion::details::CommandSet for $name {
             fn command_usage(mut command_index: usize, opts: clipanion::core::CommandUsageOptions) -> Result<clipanion::core::CommandUsageResult, clipanion::core::BuildError> {

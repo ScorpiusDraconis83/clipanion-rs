@@ -244,12 +244,6 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
         });
     }
 
-    let has_path = struct_input.fields.iter()
-        .any(|field| field.ident.as_ref().unwrap().to_string() == "paths");
-
-    let has_info = struct_input.fields.iter()
-        .any(|field| field.ident.as_ref().unwrap().to_string() == "info");
-
     for field in &mut struct_input.fields {
         let field_ident = &field.ident;
 
@@ -443,7 +437,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 Ok(())
             }
 
-            fn hydrate_command_from_state(&mut self, info: &Info, state: clipanion::core::RunState) {
+            fn hydrate_command_from_state(&mut self, info: &clipanion::advanced::Info, state: clipanion::core::RunState) {
                 #(#default_hydrater)*
 
                 for option in state.options {
