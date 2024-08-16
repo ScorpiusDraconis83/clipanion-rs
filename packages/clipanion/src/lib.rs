@@ -54,7 +54,12 @@ macro_rules! program {
                 $({
                     if command_index == 0 {
                         let mut command = <$command>::default();
-                        command.hydrate_command_from_state(info, state);
+
+                        let hydration_result = command.hydrate_command_from_state(info, state);
+                        if let Err(hydration_error) = hydration_result {
+                            return hydration_error.into();
+                        }
+
                         return command.execute().into();
                     } else {
                         command_index -= 1;

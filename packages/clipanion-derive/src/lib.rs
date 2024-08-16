@@ -366,6 +366,9 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
             if is_rest {
                 positional_hydrater.push(quote! {
                     if let clipanion::core::Positional::Rest(value) = positional {
+                        let value = value.as_str().try_into()
+                            .map_err(|err| clipanion::details::HydrationError::new(err))?;
+
                         self.#field_ident.push(value);
                         continue;
                     }
@@ -387,12 +390,18 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
                 positional_hydrater.push(quote! {
                     if let clipanion::core::Positional::Required(value) = positional {
-                        self.#field_ident = #value_creator;
+                        let value = #value_creator.as_str().try_into()
+                            .map_err(|err| clipanion::details::HydrationError::new(err))?;
+
+                        self.#field_ident = value;
                         continue;
                     }
 
                     if let clipanion::core::Positional::Optional(value) = positional {
-                        self.#field_ident = #value_creator;
+                        let value = #value_creator.as_str().try_into()
+                            .map_err(|err| clipanion::details::HydrationError::new(err))?;
+
+                        self.#field_ident = value;
                         continue;
                     }
                 });
@@ -434,10 +443,11 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
             fn attach_command_to_cli(builder: &mut clipanion::core::CommandBuilder) -> Result<(), clipanion::core::BuildError> {
                 #(#builder)*
+
                 Ok(())
             }
 
-            fn hydrate_command_from_state(&mut self, info: &clipanion::advanced::Info, state: clipanion::core::RunState) {
+            fn hydrate_command_from_state(&mut self, info: &clipanion::advanced::Info, state: clipanion::core::RunState) -> Result<(), clipanion::details::HydrationError> {
                 #(#default_hydrater)*
 
                 for option in state.options {
@@ -447,6 +457,8 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 for positional in state.positionals {
                     #(#positional_hydrater)*
                 }
+
+                Ok(())
             }
         }
     };

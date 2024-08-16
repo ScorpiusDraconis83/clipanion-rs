@@ -827,7 +827,7 @@ fn it_should_accept_any_option_as_positional_argument_when_proxies_are_enabled()
 #[cfg(test)]
 fn check_syntax_error<T>(err: Result<T, errors::Error>, str: &str) {
     match err {
-        Err(errors::Error::UnknownSyntax(s)) => assert!(s.starts_with(str), "Expected '{}' to start with '{}'", s, str),
+        Err(errors::Error::UnknownSyntax(_, s)) => assert!(s.starts_with(str), "Expected '{}' to start with '{}'", s, str),
         _ => panic!("Expected an UnknownSyntax error"),
     }
 }

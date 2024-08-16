@@ -30,8 +30,8 @@ impl Cp {
 struct Unimplemented {}
 
 impl Unimplemented {
-    pub fn execute(&self) -> Result<(), Error> {
-        Err(Error::ArbitraryError)
+    pub fn execute(&self) -> anyhow::Result<()> {
+        Err(Error::ArbitraryError)?
     }
 }
 
@@ -88,4 +88,20 @@ clipanion::program!(MyCli, [
 
 fn main() -> ExitCode {
     MyCli::run_default()
+}
+
+
+#[derive(Default)]
+struct Foo {}
+
+impl From<Foo> for u32 {
+    fn from(_: Foo) -> u32 {
+        0
+    }
+}
+
+#[derive(Default)]
+struct Bar {
+    pub a: u32,
+    pub b: Vec<u32>,
 }

@@ -6,5 +6,6 @@ license = "MIT"
 description = "A simple but powerful CLI framework"
 
 [dependencies]
-clipanion = { path = "../clipanion" }
+anyhow = "1.0.86"
+clipanion = { path = "../clipanion", features = ["anyhow"] }
 thiserror = "1.0.63"
