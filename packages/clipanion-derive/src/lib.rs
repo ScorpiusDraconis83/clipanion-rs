@@ -141,7 +141,7 @@ impl CliAttributes {
     
         for attr in std::mem::take(attrs).into_iter(){
             let path = attr.path();
-            if path.segments.len() == 0 || path.segments[0].ident != "cli" {
+            if path.segments.is_empty() || path.segments[0].ident != "cli" {
                 remaining_attributes.push(attr.clone());
                 continue;
             }

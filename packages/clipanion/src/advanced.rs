@@ -74,7 +74,7 @@ impl<S: CommandSet> Cli for S {
         let command_result = S::execute_cli_state(&info, parse_state);
 
         if let Some(err) = &command_result.error_message {
-            println!("{}", Formatter::<S>::format_error(&info, "Error", &err, &[command_index]));
+            println!("{}", Formatter::<S>::format_error(&info, "Error", &err, [command_index]));
         }
 
         command_result.exit_code

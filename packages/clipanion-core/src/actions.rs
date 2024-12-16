@@ -1,7 +1,9 @@
 use crate::{machine::MachineContext, runner::{OptionValue, Positional, RunState, Token}, shared::{Arg, HELP_COMMAND_INDEX}, CommandError, Error};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub enum Reducer {
+    #[default]
     None,
     InhibateOptions,
     PushBatch,
@@ -22,11 +24,6 @@ pub enum Reducer {
     UseHelp,
 }
 
-impl Default for Reducer {
-    fn default() -> Self {
-        Reducer::None
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Check {
@@ -318,7 +315,7 @@ pub fn apply_check(check: &Check, context: &MachineContext, state: &RunState, ar
         Check::IsNegatedOption(needle) => {
             let arg = arg.unwrap_user();
 
-            !state.ignore_options && arg.starts_with("--no-") && &arg[5..] == &needle[2..]
+            !state.ignore_options && arg.starts_with("--no-") && arg[5..] == needle[2..]
         }
 
         Check::IsNotOptionLike => {

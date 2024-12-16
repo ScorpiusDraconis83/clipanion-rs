@@ -6,6 +6,12 @@ pub struct CliBuilder {
     pub commands: Vec<CommandBuilder>,
 }
 
+impl Default for CliBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CliBuilder {
     pub fn new() -> CliBuilder {
         CliBuilder {
@@ -184,17 +190,15 @@ impl CommandBuilder {
         if !required {
             if self.arity.rest.is_some() {
                 return Err(BuildError::OptionalParametersAfterRest);
-            } else if self.arity.trailing.len() > 0 {
+            } else if !self.arity.trailing.is_empty() {
                 return Err(BuildError::OptionalParametersAfterTrailingPositionals);
             } else {
                 self.arity.optionals.push(name.to_string());
             }
+        } else if !self.arity.optionals.is_empty() || self.arity.rest.is_some() {
+            self.arity.trailing.push(name.to_string());
         } else {
-            if self.arity.optionals.len() > 0 || self.arity.rest.is_some() {
-                self.arity.trailing.push(name.to_string());
-            } else {
-                self.arity.leading.push(name.to_string());
-            }
+            self.arity.leading.push(name.to_string());
         }
 
         Ok(self)
@@ -203,7 +207,7 @@ impl CommandBuilder {
     pub fn add_rest(&mut self, name: &str) -> Result<&mut Self, BuildError> {
         if self.arity.rest.is_some() {
             return Err(BuildError::MultipleRestParameters);
-        } else if self.arity.trailing.len() > 0 {
+        } else if !self.arity.trailing.is_empty() {
             return Err(BuildError::RestAfterTrailingPositionals);
         } else {
             self.arity.rest = Some(name.to_string());
@@ -268,7 +272,7 @@ impl CommandBuilder {
             // We allow options to be specified before the path. Note that we
             // only do this when there is a path, otherwise there would be
             // some redundancy with the options attached later.
-            if path.len() > 0 {
+            if !path.is_empty() {
                 let option_node_id = machine.inject_node(Node::new());
                 machine.register_shortcut(last_path_node_id, option_node_id, Reducer::None);
                 self.register_options(&mut machine, option_node_id);
@@ -290,7 +294,7 @@ impl CommandBuilder {
                 }
             }
 
-            if self.arity.leading.len() > 0 || !self.arity.proxy {
+            if !self.arity.leading.is_empty() || !self.arity.proxy {
                 let help_node_id = machine.inject_node(Node::new());
                 machine.register_dynamic(last_path_node_id, Check::IsHelp, help_node_id, Reducer::UseHelp);
                 machine.register_dynamic(help_node_id, Check::Always, help_node_id, Reducer::PushOptional);
@@ -299,7 +303,7 @@ impl CommandBuilder {
                 self.register_options(&mut machine, last_path_node_id);
             }
 
-            if self.arity.leading.len() > 0 {
+            if !self.arity.leading.is_empty() {
                 machine.register_static(last_path_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError(CommandError::MissingPositionalArguments));
                 machine.register_static(last_path_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
             }
@@ -312,7 +316,7 @@ impl CommandBuilder {
                     self.register_options(&mut machine, next_leading_node_id);
                 }
 
-                if self.arity.trailing.len() > 0 || t + 1 != self.arity.leading.len() {
+                if !self.arity.trailing.is_empty() || t + 1 != self.arity.leading.len() {
                     machine.register_static(next_leading_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError(CommandError::MissingPositionalArguments));
                     machine.register_static(next_leading_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
                 }
@@ -322,7 +326,7 @@ impl CommandBuilder {
             }
 
             let mut last_extra_node_id = last_leading_node_id;
-            if self.arity.rest.is_some() || self.arity.optionals.len() > 0 {
+            if self.arity.rest.is_some() || !self.arity.optionals.is_empty() {
                 let extra_shortcut_node_id = machine.inject_node(Node::new());
                 machine.register_shortcut(last_leading_node_id, extra_shortcut_node_id, Reducer::None);
 
@@ -353,7 +357,7 @@ impl CommandBuilder {
                 last_extra_node_id = extra_shortcut_node_id;
             }
 
-            if self.arity.trailing.len() > 0 {
+            if !self.arity.trailing.is_empty() {
                 machine.register_static(last_extra_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError(CommandError::MissingPositionalArguments));
                 machine.register_static(last_extra_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
             }

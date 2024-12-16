@@ -83,7 +83,7 @@ fn trim_smaller_branches(branches: &mut Vec<RunBranch>) {
     branches.retain(|b| b.state.path.len() == max_path_size);
 }
 
-fn select_best_state(_input: &Vec<String>, mut states: Vec<RunState>) -> Result<RunState, Error> {
+fn select_best_state(_input: &[String], mut states: Vec<RunState>) -> Result<RunState, Error> {
     states.retain(|s| {
         s.selected_index.is_some()
     });
@@ -113,14 +113,14 @@ fn select_best_state(_input: &Vec<String>, mut states: Vec<RunState>) -> Result<
         let option_scope = state.options.len();
 
         let positional_score = state.positionals.iter()
-            .filter(|mode| match mode { Positional::Required(_) => true, _ => false })
+            .filter(|mode| matches!(mode, Positional::Required(_)))
             .count();
 
         option_scope + positional_score
     }
 
     let best_fill_score = states.iter()
-        .map(|s| get_fill_score(s))
+        .map(get_fill_score)
         .max()
         .unwrap();
 
@@ -146,7 +146,7 @@ fn find_common_prefix<'t, I>(mut it: I) -> Vec<String> where I: Iterator<Item = 
     let mut common_prefix
         = it.next().unwrap().clone();
 
-    while let Some(path) = it.next() {
+    for path in it {
         if path.len() < common_prefix.len() {
             common_prefix.resize(path.len(), Default::default());
         }
@@ -184,12 +184,12 @@ fn aggregate_help_states<I>(it: I) -> Vec<RunState> where I: Iterator<Item = Run
     not_helps
 }
 
-fn extract_error_from_branches(_input: &Vec<String>, mut branches: Vec<RunBranch>, is_next: bool) -> Error {
+fn extract_error_from_branches(_input: &[String], mut branches: Vec<RunBranch>, is_next: bool) -> Error {
     if is_next {
         if let Some(lead) = branches.pop() {
             if let Some(Error::CommandError(usize, command_error)) = lead.state.error_message {
                 if branches.iter().all(|b| match &b.state.error_message {
-                    Some(Error::CommandError(_, command_error)) => command_error == command_error,
+                    Some(Error::CommandError(_, other_error)) => other_error == &command_error,
                     _ => false,
                 }) {
                     return Error::CommandError(usize, command_error);
@@ -208,7 +208,7 @@ fn extract_error_from_branches(_input: &Vec<String>, mut branches: Vec<RunBranch
     Error::NotFound(candidate_indices)
 }
 
-fn run_machine_internal(machine: &Machine, input: &Vec<String>, partial: bool) -> Result<Vec<RunBranch>, Error> {
+fn run_machine_internal(machine: &Machine, input: &[String], partial: bool) -> Result<Vec<RunBranch>, Error> {
     let mut args = vec![Arg::StartOfInput];
 
     args.extend(input.iter().map(|s| {
@@ -259,7 +259,7 @@ fn run_machine_internal(machine: &Machine, input: &Vec<String>, partial: bool) -
 
             if !is_eoi {
                 for (check, transition) in &node.dynamics {
-                    if apply_check(check, context, &branch.state, &arg, t - 1) {
+                    if apply_check(check, context, &branch.state, arg, t - 1) {
                         next_branches.push(branch.apply_transition(transition, context, arg, t - 1));
                     }
                 }
@@ -291,7 +291,7 @@ fn run_machine_internal(machine: &Machine, input: &Vec<String>, partial: bool) -
     Ok(branches)
 }
 
-pub fn run_machine(machine: &Machine, input: &Vec<String>) -> Result<RunState, Error> {
+pub fn run_machine(machine: &Machine, input: &[String]) -> Result<RunState, Error> {
     let branches = run_machine_internal(machine, input, false)?;
 
     let states = branches.into_iter()
@@ -301,7 +301,7 @@ pub fn run_machine(machine: &Machine, input: &Vec<String>) -> Result<RunState, E
     select_best_state(input, states)
 }
 
-pub fn run_partial_machine(machine: &Machine, input: &Vec<String>) -> Result<RunState, Error> {
+pub fn run_partial_machine(machine: &Machine, input: &[String]) -> Result<RunState, Error> {
     let branches = run_machine_internal(machine, input, true)?;
 
     let states = branches.into_iter()

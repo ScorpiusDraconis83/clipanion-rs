@@ -57,11 +57,11 @@ impl<S: CommandSet> Formatter<S> {
     pub fn format_parse_error(info: &Info, err: &clipanion_core::Error) -> String {
         match err {
             clipanion_core::Error::AmbiguousSyntax(candidate_indices)
-                => Self::format_error(info, "Usage Error", &"The provided arguments are ambiguous and need to be refined further. Possible options are:", &candidate_indices),
+                => Self::format_error(info, "Usage Error", &"The provided arguments are ambiguous and need to be refined further. Possible options are:", candidate_indices),
             clipanion_core::Error::CommandError(command_index, err)
-                => Self::format_error(info, "Usage Error", err, &[*command_index]),
+                => Self::format_error(info, "Usage Error", err, [*command_index]),
             clipanion_core::Error::InternalError
-                => Self::format_error(info, "Usage Error", &"An internal error occurred.", &[]),
+                => Self::format_error(info, "Usage Error", &"An internal error occurred.", []),
             clipanion_core::Error::NotFound(suggested_indices)
                 => Self::format_error(info, "Usage Error", &"The specified command was not found. Did you mean one of those commands?", suggested_indices),
         }
