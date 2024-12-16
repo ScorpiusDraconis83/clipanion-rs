@@ -5,12 +5,12 @@ use std::collections::HashMap;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
-use syn::{parse::{Parse, ParseStream}, parse_macro_input, punctuated::Punctuated, Attribute, DeriveInput, Fields, Ident, Lit, LitBool, LitStr, Meta, Path, Token};
+use syn::{parse::{Parse, ParseStream}, parse_macro_input, punctuated::Punctuated, Attribute, DeriveInput, Expr, ExprLit, Fields, Ident, Lit, LitBool, LitStr, Meta, Path, Token};
 
 macro_rules! expect_lit {
     ($expression:path) => {
         |val| match val {
-            $expression(value) => Ok(value),
+            Expr::Lit(ExprLit {lit: $expression(value), ..}) => Ok(value),
             _ => Err(syn::Error::new_spanned(val, "Invalid literal type")),
         }
     };
@@ -22,7 +22,7 @@ fn to_lit_str<T: AsRef<str>>(str: T) -> LitStr {
 
 #[derive(Clone, Default)]
 struct AttributeBag {
-    attributes: HashMap<String, Lit>,
+    attributes: HashMap<String, Expr>,
 }
 
 impl AttributeBag {
@@ -34,7 +34,7 @@ impl AttributeBag {
         Ok(())
     }
 
-    pub fn take(&mut self, key: &str) -> Option<Lit> {
+    pub fn take(&mut self, key: &str) -> Option<Expr> {
         self.attributes.remove(key)
     }
 }
@@ -52,10 +52,16 @@ impl Parse for AttributeBag {
             if input.peek(Token![=]) {
                 input.parse::<Token![=]>()?;  // Consume the equals sign
 
-                let value: Lit = input.parse()?;
+                let value: Expr = input.parse()?;
                 attributes.insert(name, value);
             } else {
-                attributes.insert(name, Lit::Bool(LitBool::new(true, ident.span())));
+                attributes.insert(name, Expr::Lit(ExprLit {
+                    attrs: vec![],
+                    lit: Lit::Bool(LitBool {
+                        value: true,
+                        span: proc_macro2::Span::call_site(),
+                    }),
+                }));
             }
 
             if !input.is_empty() {
@@ -311,7 +317,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 .map(to_lit_str)
                 .collect::<Vec<_>>();
 
-            let value_type = if arity > 0 {
+            let value_type = if arity > 1 {
                 quote! {Array}
             } else if is_bool {
                 quote! {Bool}
@@ -319,12 +325,24 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 quote! {String}
             };
 
-            let value_creator = match is_option_type {
-                true => quote! {Some(value)},
-                false => quote! {value},
+            let value_converter = if arity > 1 {
+                quote! {value.iter().map(|s| s.parse().unwrap()).collect::<Result<Vec<_>, _>>()}
+            } else if is_bool {
+                quote! {Result::<bool, std::convert::Infallible>::Ok(value)}
+            } else {
+                quote! {value.parse()}
             };
 
-            if let Some(initial) = option_bag.attributes.take("initial") {
+            let value_converter_with_check = quote! {
+                #value_converter.map_err(|err| clipanion::details::HydrationError::new(err))?
+            };
+
+            let value_creator = match is_option_type {
+                true => quote! {Some(#value_converter_with_check)},
+                false => quote! {#value_converter_with_check},
+            };
+
+            if let Some(initial) = option_bag.attributes.take("default") {
                 default_hydrater.push(quote! {
                     self.#field_ident = #initial;
                 });
@@ -366,7 +384,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
             if is_rest {
                 positional_hydrater.push(quote! {
                     if let clipanion::core::Positional::Rest(value) = positional {
-                        let value = value.as_str().try_into()
+                        let value = value.as_str().parse()
                             .map_err(|err| clipanion::details::HydrationError::new(err))?;
 
                         self.#field_ident.push(value);

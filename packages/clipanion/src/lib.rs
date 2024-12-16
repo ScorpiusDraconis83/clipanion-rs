@@ -9,6 +9,7 @@ pub mod cli {
 pub mod advanced;
 pub mod format;
 pub mod details;
+pub mod prelude;
 
 #[macro_export]
 macro_rules! program {

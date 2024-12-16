@@ -48,7 +48,7 @@ pub enum Positional {
 pub struct RunState {
     pub candidate_index: usize,
     pub required_options: Vec<String>,
-    pub error_message: String,
+    pub error_message: Option<Error>,
     pub ignore_options: bool,
     pub is_help: bool,
     pub options: Vec<(String, OptionValue)>,
@@ -93,7 +93,7 @@ fn select_best_state(_input: &Vec<String>, mut states: Vec<RunState>) -> Result<
     }
 
     states.retain(|s| {
-        s.selected_index == Some(HELP_COMMAND_INDEX) || s.required_options.is_empty()
+        s.selected_index == Some(HELP_COMMAND_INDEX) || s.required_options.iter().all(|o| s.options.iter().any(|(name, _)| name == o))
     });
 
     if states.is_empty() {
@@ -187,8 +187,13 @@ fn aggregate_help_states<I>(it: I) -> Vec<RunState> where I: Iterator<Item = Run
 fn extract_error_from_branches(_input: &Vec<String>, mut branches: Vec<RunBranch>, is_next: bool) -> Error {
     if is_next {
         if let Some(lead) = branches.pop() {
-            if branches.iter().all(|b| b.state.error_message == lead.state.error_message) {
-                return Error::Custom(lead.state.candidate_index, lead.state.error_message);
+            if let Some(Error::CommandError(usize, command_error)) = lead.state.error_message {
+                if branches.iter().all(|b| match &b.state.error_message {
+                    Some(Error::CommandError(_, command_error)) => command_error == command_error,
+                    _ => false,
+                }) {
+                    return Error::CommandError(usize, command_error);
+                }
             }
         }
     }

@@ -824,14 +824,6 @@ fn it_should_accept_any_option_as_positional_argument_when_proxies_are_enabled()
     ]);
 }
 
-#[cfg(test)]
-fn check_syntax_error<T>(err: Result<T, errors::Error>, str: &str) {
-    match err {
-        Err(errors::Error::UnknownSyntax(_, s)) => assert!(s.starts_with(str), "Expected '{}' to start with '{}'", s, str),
-        _ => panic!("Expected an UnknownSyntax error"),
-    }
-}
-
 #[test]
 fn it_should_throw_acceptable_errors_when_passing_an_extraneous_option() {
     let mut cli_builder = builder::CliBuilder::new();
@@ -842,7 +834,7 @@ fn it_should_throw_acceptable_errors_when_passing_an_extraneous_option() {
     let machine = cli_builder.compile();
 
     let result = runner::run_machine(&machine, &vec!["--foo".to_string()]);
-    check_syntax_error(result, "Unsupported option name (\"--foo\")");
+    assert!(matches!(result, Err(errors::Error::CommandError(_, errors::CommandError::UnknownOption))));
 }
 
 #[test]
@@ -855,7 +847,7 @@ fn it_should_throw_acceptable_errors_when_passing_extraneous_arguments() {
     let machine = cli_builder.compile();
 
     let result = runner::run_machine(&machine, &vec!["foo".to_string()]);
-    check_syntax_error(result, "Extraneous positional argument (\"foo\")");
+    assert!(matches!(result, Err(errors::Error::CommandError(_, errors::CommandError::ExtraneousPositionalArguments))));
 }
 
 #[test]
@@ -868,7 +860,7 @@ fn it_should_throw_acceptable_errors_when_writing_invalid_arguments() {
     let machine = cli_builder.compile();
 
     let result = runner::run_machine(&machine, &vec!["-%#@$%#()@".to_string()]);
-    check_syntax_error(result, "Invalid option name (\"-%#@$%#()@\")");
+    assert!(matches!(result, Err(errors::Error::CommandError(_, errors::CommandError::InvalidOption))));
 }
 
 #[test]
@@ -882,7 +874,7 @@ fn it_should_throw_acceptable_errors_when_writing_bound_boolean_arguments() {
     let machine = cli_builder.compile();
 
     let result = runner::run_machine(&machine, &vec!["--foo=bar".to_string()]);
-    check_syntax_error(result, "Invalid option name (\"--foo=bar\")");
+    assert!(matches!(result, Err(errors::Error::CommandError(_, errors::CommandError::InvalidOption))));
 }
 
 #[test]

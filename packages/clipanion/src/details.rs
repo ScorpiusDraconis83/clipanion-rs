@@ -58,6 +58,15 @@ impl From<std::process::ExitCode> for CommandResult {
     }
 }
 
+impl From<std::process::ExitStatus> for CommandResult {
+    fn from(exit_status: std::process::ExitStatus) -> Self {
+        Self {
+            exit_code: std::process::ExitCode::from(exit_status.code().unwrap_or(1) as u8),
+            error_message: None,
+        }
+    }
+}
+
 #[cfg(feature = "anyhow")]
 impl<T: Into<CommandResult>> From<Result<T, anyhow::Error>> for CommandResult {
     fn from(value: Result<T, anyhow::Error>) -> Self {

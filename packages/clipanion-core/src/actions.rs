@@ -1,4 +1,4 @@
-use crate::{machine::MachineContext, runner::{OptionValue, Positional, RunState, Token}, shared::{Arg, HELP_COMMAND_INDEX}};
+use crate::{machine::MachineContext, runner::{OptionValue, Positional, RunState, Token}, shared::{Arg, HELP_COMMAND_INDEX}, CommandError, Error};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reducer {
@@ -15,7 +15,7 @@ pub enum Reducer {
     AppendStringValue,
     InitializeState(usize, Vec<String>),
     PushTrue(String),
-    SetError(String),
+    SetError(CommandError),
     SetOptionArityError,
     AcceptState,
     ResetStringValue,
@@ -217,22 +217,15 @@ pub fn apply_reducer(reducer: &Reducer, context: &MachineContext, state: &RunSta
             state
         }
 
-        Reducer::SetError(message) => {
+        Reducer::SetError(error) => {
             let mut state = state.clone();
-
-            state.error_message = match arg {
-                Arg::EndOfInput | Arg::EndOfPartialInput => format!("{}.", message),
-                _ => format!("{} (\"{}\").", message, arg.unwrap_user()),
-            };
-
+            state.error_message = Some(Error::CommandError(state.candidate_index, error.clone()));
             state
         }
 
         Reducer::SetOptionArityError => {
-            let last_option_name = &state.options.last().unwrap().0;
-
             let mut state = state.clone();
-            state.error_message = format!("Not enough arguments to option {}.", last_option_name);
+            state.error_message = Some(Error::CommandError(state.candidate_index, CommandError::MissingOptionArguments));
             state
         }
 

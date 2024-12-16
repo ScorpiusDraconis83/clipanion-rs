@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::{actions::{Check, Reducer}, errors::BuildError, machine::Machine, node::Node, shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}};
+use crate::{actions::{Check, Reducer}, errors::BuildError, machine::Machine, node::Node, shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandError};
 
 pub struct CliBuilder {
     pub commands: Vec<CommandBuilder>,
@@ -300,7 +300,7 @@ impl CommandBuilder {
             }
 
             if self.arity.leading.len() > 0 {
-                machine.register_static(last_path_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
+                machine.register_static(last_path_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError(CommandError::MissingPositionalArguments));
                 machine.register_static(last_path_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
             }
 
@@ -313,7 +313,7 @@ impl CommandBuilder {
                 }
 
                 if self.arity.trailing.len() > 0 || t + 1 != self.arity.leading.len() {
-                    machine.register_static(next_leading_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
+                    machine.register_static(next_leading_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError(CommandError::MissingPositionalArguments));
                     machine.register_static(next_leading_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
                 }
 
@@ -354,7 +354,7 @@ impl CommandBuilder {
             }
 
             if self.arity.trailing.len() > 0 {
-                machine.register_static(last_extra_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
+                machine.register_static(last_extra_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError(CommandError::MissingPositionalArguments));
                 machine.register_static(last_extra_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
             }
 
@@ -367,7 +367,7 @@ impl CommandBuilder {
                 }
 
                 if t + 1 < self.arity.trailing.len() {
-                    machine.register_static(next_trailing_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError("Not enough positional arguments".to_string()));
+                    machine.register_static(next_trailing_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError(CommandError::MissingPositionalArguments));
                     machine.register_static(next_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
                 }
 
@@ -375,7 +375,7 @@ impl CommandBuilder {
                 last_trailing_node_id = next_trailing_node_id;
             }
 
-            machine.register_dynamic(last_trailing_node_id, positional_argument.clone(), ERROR_NODE_ID, Reducer::SetError("Extraneous positional argument".to_string()));
+            machine.register_dynamic(last_trailing_node_id, positional_argument.clone(), ERROR_NODE_ID, Reducer::SetError(CommandError::ExtraneousPositionalArguments));
             machine.register_static(last_trailing_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::AcceptState);
             machine.register_static(last_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
         }
@@ -387,8 +387,8 @@ impl CommandBuilder {
         machine.register_dynamic(node_id, Check::IsExactOption("--".to_string()), node_id, Reducer::InhibateOptions);
         machine.register_dynamic(node_id, Check::IsBatchOption, node_id, Reducer::PushBatch);
         machine.register_dynamic(node_id, Check::IsBoundOption, node_id, Reducer::PushBound);
-        machine.register_dynamic(node_id, Check::IsUnsupportedOption, ERROR_NODE_ID, Reducer::SetError("Unsupported option name".to_string()));
-        machine.register_dynamic(node_id, Check::IsInvalidOption, ERROR_NODE_ID, Reducer::SetError("Invalid option name".to_string()));
+        machine.register_dynamic(node_id, Check::IsUnsupportedOption, ERROR_NODE_ID, Reducer::SetError(CommandError::UnknownOption));
+        machine.register_dynamic(node_id, Check::IsInvalidOption, ERROR_NODE_ID, Reducer::SetError(CommandError::InvalidOption));
 
         for (preferred_name, option) in &self.options {
             if option.arity == 0 {

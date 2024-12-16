@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use clipanion::{advanced::{Cli, Info}, cli};
+use clipanion::prelude::*;
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
@@ -12,7 +12,7 @@ enum Error {
 #[cli::command]
 #[cli::path("cp")]
 struct Cp {
-    #[cli::option("-r,--recursive", help = "Copy directories recursively", initial = false)]
+    #[cli::option("-r,--recursive", help = "Copy directories recursively", default = false)]
     recursive: bool,
 
     sources: Vec<String>,
@@ -20,6 +20,39 @@ struct Cp {
 }
 
 impl Cp {
+    pub fn execute(&self) {
+        println!("{:?}", self);
+    }
+}
+
+#[derive(Debug)]
+#[cli::command]
+#[cli::path("grep")]
+struct Grep {
+    #[cli::option("--color")]
+    color: Option<String>,
+}
+
+impl Grep {
+    pub fn execute(&self) {
+        println!("{:?}", self);
+    }
+}
+
+#[derive(Debug)]
+#[cli::command]
+#[cli::path("ssh")]
+struct Ssh {
+    #[cli::option("-p,--port", help = "Port to connect to", default = 22)]
+    port: u16,
+
+    #[cli::option("--user", help = "User to connect as", default = "root".to_string())]
+    user: String,
+
+    host: String,
+}
+
+impl Ssh {
     pub fn execute(&self) {
         println!("{:?}", self);
     }
@@ -80,6 +113,8 @@ impl YarnRunDefault {
 
 clipanion::program!(MyCli, [
     Cp,
+    Grep,
+    Ssh,
     Unimplemented,
     YarnInstall,
     YarnRun,
@@ -88,20 +123,4 @@ clipanion::program!(MyCli, [
 
 fn main() -> ExitCode {
     MyCli::run_default()
-}
-
-
-#[derive(Default)]
-struct Foo {}
-
-impl From<Foo> for u32 {
-    fn from(_: Foo) -> u32 {
-        0
-    }
-}
-
-#[derive(Default)]
-struct Bar {
-    pub a: u32,
-    pub b: Vec<u32>,
 }
