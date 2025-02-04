@@ -87,9 +87,14 @@ impl<T: Into<CommandResult>, E: Display> From<Result<T, E>> for CommandResult {
         match value {
             Ok(value) => value.into(),
 
-            Err(err) => Self {
-                exit_code: std::process::ExitCode::FAILURE,
-                error_message: Some(format!("{:#}", err)),
+            Err(err) => {
+                let message = format!("{:#}", err);
+                let maybe_message = if message.is_empty() { None } else { Some(message) };
+
+                Self {
+                    exit_code: std::process::ExitCode::FAILURE,
+                    error_message: maybe_message,
+                }
             },
         }
     }
