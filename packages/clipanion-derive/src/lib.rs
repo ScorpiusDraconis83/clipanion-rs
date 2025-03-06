@@ -255,6 +255,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
         let mut internal_field_type = &field.ty;
         let mut is_option_type = false;
+        let mut is_vec_type = false;
 
         if let syn::Type::Path(type_path) = &internal_field_type {
             if &type_path.path.segments[0].ident == "Option" {
@@ -263,6 +264,16 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                     if let syn::GenericArgument::Type(ty) = &args.args[0] {
                         internal_field_type = ty;
                         is_option_type = true;
+                    }
+                }
+            }
+
+            if &type_path.path.segments[0].ident == "Vec" {
+                let inner_type = &type_path.path.segments[0].arguments;
+                if let syn::PathArguments::AngleBracketed(args) = inner_type {
+                    if let syn::GenericArgument::Type(ty) = &args.args[0] {
+                        internal_field_type = ty;
+                        is_vec_type = true;
                     }
                 }
             }
@@ -348,10 +359,19 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 });
             }
 
+            let value_hydrater = match is_vec_type {
+                true => quote! {
+                    self.#field_ident.push(#value_creator);
+                },
+                false => quote! {
+                    self.#field_ident = #value_creator;
+                },
+            };
+
             option_hydrater.push(quote! {
                 if option.0.as_str() == #preferred_name_lit {
                     if let clipanion::core::OptionValue::#value_type(value) = option.1 {
-                        self.#field_ident = #value_creator;
+                        #value_hydrater;
                         continue;
                     }
                 }
@@ -373,15 +393,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 .to_string()
                 .to_uppercase();
 
-            let mut is_rest = false;
-
-            if let syn::Type::Path(type_path) = &internal_field_type {
-                if &type_path.path.segments[0].ident == "Vec" {
-                    is_rest = true;
-                }
-            }
-
-            if is_rest {
+            if is_vec_type {
                 positional_hydrater.push(quote! {
                     if let clipanion::core::Positional::Rest(value) = positional {
                         let value = value.as_str().parse()
