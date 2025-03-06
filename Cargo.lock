@@ -36,7 +36,7 @@ dependencies = [
 
 [[package]]
 name = "clipanion-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "thiserror 2.0.7",
 ]
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "clipanion-derive"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "indoc",
  "proc-macro2",

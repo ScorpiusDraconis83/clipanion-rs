@@ -7,8 +7,8 @@ description = "A simple but powerful CLI framework"
 
 [dependencies]
 anyhow = { version = "1.0.86", optional = true }
-clipanion-core = { path = "../clipanion-core", version = "0.6.0" }
-clipanion-derive = { path = "../clipanion-derive", version = "0.6.0" }
+clipanion-core = { path = "../clipanion-core", version = "0.7.0" }
+clipanion-derive = { path = "../clipanion-derive", version = "0.7.0" }
 colored = "2.1.0"
 num-traits = "0.2.19"
 
