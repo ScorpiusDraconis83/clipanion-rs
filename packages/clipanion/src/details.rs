@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, iter::Peekable};
 
 use crate::advanced::Info;
 
@@ -117,4 +117,14 @@ pub trait CommandSet {
     fn command_usage(command_index: usize, opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
     fn register_to_cli_builder(builder: &mut clipanion_core::CliBuilder) -> Result<(), clipanion_core::BuildError>;
     fn execute_cli_state(info: &Info, state: clipanion_core::RunState) -> crate::details::CommandResult;
+}
+
+pub fn cautious_take_if<T: Iterator>(it: &mut Peekable<T>, check: impl FnOnce(&T::Item) -> bool) -> Option<T::Item> {
+    if let Some(item) = it.peek() {
+        if check(item) {
+            return it.next();
+        }
+    }
+
+    None
 }

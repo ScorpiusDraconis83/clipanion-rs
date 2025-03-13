@@ -395,12 +395,11 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
             if is_vec_type {
                 positional_hydrater.push(quote! {
-                    if let clipanion::core::Positional::Rest(value) = positional {
+                    while let Some(clipanion::core::Positional::Rest(value)) = clipanion::details::cautious_take_if(&mut positional_it, |item| matches!(item, clipanion::core::Positional::Rest(_))) {
                         let value = value.as_str().parse()
                             .map_err(|err| clipanion::details::HydrationError::new(err))?;
 
                         self.#field_ident.push(value);
-                        continue;
                     }
                 });
 
@@ -418,23 +417,27 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                     false => quote! {value},
                 };
 
-                positional_hydrater.push(quote! {
-                    if let clipanion::core::Positional::Required(value) = positional {
-                        let value = #value_creator.as_str().try_into()
-                            .map_err(|err| clipanion::details::HydrationError::new(err))?;
+                if is_option_type {
+                    positional_hydrater.push(quote! {
+                        if let Some(clipanion::core::Positional::Optional(value)) = clipanion::details::cautious_take_if(&mut positional_it, |item| matches!(item, clipanion::core::Positional::Required(_))) {
+                            let value = #value_creator.as_str().try_into()
+                                .map_err(|err| clipanion::details::HydrationError::new(err))?;
 
-                        self.#field_ident = value;
-                        continue;
-                    }
+                            self.#field_ident = value;
+                        }
+                    });
+                } else {
+                    positional_hydrater.push(quote! {
+                        if let Some(clipanion::core::Positional::Required(value)) = positional_it.next() {
+                            let value = #value_creator.as_str().try_into()
+                                .map_err(|err| clipanion::details::HydrationError::new(err))?;
 
-                    if let clipanion::core::Positional::Optional(value) = positional {
-                        let value = #value_creator.as_str().try_into()
-                            .map_err(|err| clipanion::details::HydrationError::new(err))?;
-
-                        self.#field_ident = value;
-                        continue;
-                    }
-                });
+                            self.#field_ident = value;
+                        } else {
+                            panic!("Internal error: Unexpected positional type during the Clipanion hydration");
+                        }
+                    });
+                }
 
                 builder.push(quote! {
                     builder.add_positional(!#is_option_type, #field_name_upper)?;
@@ -484,9 +487,11 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                     #(#option_hydrater)*
                 }
 
-                for positional in state.positionals {
-                    #(#positional_hydrater)*
-                }
+                let mut positional_it = state.positionals
+                    .into_iter()
+                    .peekable();
+
+                #(#positional_hydrater)*
 
                 Ok(())
             }
