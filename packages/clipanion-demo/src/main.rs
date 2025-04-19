@@ -121,6 +121,41 @@ clipanion::program!(MyCli, [
     YarnRunDefault,
 ]);
 
-fn main() -> ExitCode {
+#[tokio::main()]
+async fn main() -> ExitCode {
     MyCli::run_default()
+}
+
+#[test]
+fn it_should_support_program() {
+    #[cli::command(default)]
+    struct MyCommandSync {}
+
+    impl MyCommandSync {
+        fn execute(&self) -> () {
+        }
+    }
+
+    clipanion::program!(MyCliSync, [
+        MyCommandSync,
+    ]);
+
+    MyCliSync::run_default();
+}
+
+#[tokio::test]
+async fn it_should_support_program_async() {
+    #[cli::command(default)]
+    struct MyCommandAsync {}
+
+    impl MyCommandAsync {
+        async fn execute(&self) -> () {
+        }
+    }
+
+    clipanion::program_async!(MyCliAsync, [
+        MyCommandAsync,
+    ]);
+
+    MyCliAsync::run_default().await;
 }

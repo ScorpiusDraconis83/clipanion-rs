@@ -1,4 +1,4 @@
-use std::{fmt::Display, iter::Peekable};
+use std::{fmt::Display, future::Future, iter::Peekable};
 
 use crate::advanced::Info;
 
@@ -110,13 +110,20 @@ pub trait CommandController {
 }
 
 /**
- * Internal trait implemented by the `new!` macro. Used to statically aggregate
- * multiple commands together in a single type.
+ * Internal traits implemented by the `program!` and `program_async!` macros. Used
+ * to statically aggregate multiple commands together in a single `Cli` type.
  */
-pub trait CommandSet {
+pub trait CommandProvider {
     fn command_usage(command_index: usize, opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
     fn register_to_cli_builder(builder: &mut clipanion_core::CliBuilder) -> Result<(), clipanion_core::BuildError>;
+}
+
+pub trait CommandExecutor {
     fn execute_cli_state(info: &Info, state: clipanion_core::RunState) -> crate::details::CommandResult;
+}
+
+pub trait CommandExecutorAsync {
+    fn execute_cli_state(info: &Info, state: clipanion_core::RunState) -> impl Future<Output = crate::details::CommandResult>;
 }
 
 pub fn cautious_take_if<T: Iterator>(it: &mut Peekable<T>, check: impl FnOnce(&T::Item) -> bool) -> Option<T::Item> {

@@ -2,7 +2,7 @@ use std::{fmt::Display, marker::PhantomData};
 
 use colored::Colorize;
 
-use crate::{advanced::Info, details::CommandSet};
+use crate::{advanced::Info, details::CommandProvider};
 
 fn format_usage_line(info: &Info, usage_line: &str) -> String {
     let usage_line = format!("$ {} {}", info.binary_name, usage_line);
@@ -17,7 +17,7 @@ pub struct Formatter<S> {
     phantom: PhantomData<S>,
 }
 
-impl<S: CommandSet> Formatter<S> {
+impl<S: CommandProvider> Formatter<S> {
     fn format_command_usages(info: &Info, command_indices: &[usize]) -> String {
         let mut result = String::new();
 

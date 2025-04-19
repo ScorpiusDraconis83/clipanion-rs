@@ -9,3 +9,4 @@ description = "A simple but powerful CLI framework"
 anyhow = "1.0.86"
 clipanion = { path = "../clipanion", features = ["anyhow"] }
 thiserror = "1.0.63"
+tokio = { version = "1.39.2", features = ["full"] }
