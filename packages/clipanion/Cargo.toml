@@ -1,14 +1,14 @@
 [package]
 name = "clipanion"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 license = "MIT"
 description = "A simple but powerful CLI framework"
 
 [dependencies]
 anyhow = { version = "1.0.86", optional = true }
-clipanion-core = { path = "../clipanion-core", version = "0.7.1" }
-clipanion-derive = { path = "../clipanion-derive", version = "0.7.1" }
+clipanion-core = { path = "../clipanion-core", version = "0.8.0" }
+clipanion-derive = { path = "../clipanion-derive", version = "0.8.0" }
 colored = "2.1.0"
 num-traits = "0.2.19"
 

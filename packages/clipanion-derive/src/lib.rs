@@ -405,9 +405,15 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                     None => quote! { partial.#field_ident },
                 };
 
-                initialization_members.push(quote! {
-                    #field_ident: #accessor.unwrap(),
-                });
+                if is_option_type {
+                    initialization_members.push(quote! {
+                        #field_ident: #accessor.unwrap_or_default(),
+                    });
+                } else {
+                    initialization_members.push(quote! {
+                        #field_ident: #accessor.unwrap(),
+                    });
+                }
             }
 
             builder.push(quote! {
@@ -520,7 +526,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
             }
 
             fn hydrate_command_from_state(info: &clipanion::advanced::Info, state: clipanion::core::RunState) -> Result<Self, clipanion::details::HydrationError> {
-                #[derive(Default)]
+                #[derive(Default, Debug)]
                 struct Partial {
                     #(#partial_struct_members)*
                 }

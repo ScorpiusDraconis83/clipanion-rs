@@ -73,7 +73,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "clipanion"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "clipanion-core",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "clipanion-core"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "thiserror 2.0.7",
 ]
@@ -101,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "clipanion-derive"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "indoc",
  "proc-macro2",
