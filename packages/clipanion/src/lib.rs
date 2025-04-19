@@ -62,13 +62,13 @@ macro_rules! program_executor {
                 // counter here and hope the compiler optimizes it.
                 $({
                     if command_index == 0 {
-                        let mut command
-                            = <$command>::default();
-
-                        let hydration_result = command.hydrate_command_from_state(info, state);
-                        if let Err(hydration_error) = hydration_result {
-                            return hydration_error.into();
-                        }
+                        let hydration_result
+                            = <$command>::hydrate_command_from_state(info, state);
+                        
+                        let command = match hydration_result {
+                            Err(hydration_error) => return hydration_error.into(),
+                            Ok(command) => command
+                        };
 
                         let command_result
                             = command.execute();
@@ -98,13 +98,13 @@ macro_rules! program_executor {
                 // counter here and hope the compiler optimizes it.
                 $({
                     if command_index == 0 {
-                        let mut command
-                            = <$command>::default();
-
-                        let hydration_result = command.hydrate_command_from_state(info, state);
-                        if let Err(hydration_error) = hydration_result {
-                            return hydration_error.into();
-                        }
+                        let hydration_result
+                            = <$command>::hydrate_command_from_state(info, state);
+                        
+                        let command = match hydration_result {
+                            Err(hydration_error) => return hydration_error.into(),
+                            Ok(command) => command
+                        };
 
                         let command_result
                             = command.execute().await;

@@ -202,7 +202,6 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
     let mut builder = vec![];
 
-    let mut default_hydrater = vec![];
     let mut option_hydrater = vec![];
     let mut positional_hydrater = vec![];
     
@@ -230,9 +229,16 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
         .map(|lit| lit.value)
         .unwrap_or(false);
 
-    let paths_lits = command_cli_attributes.take_paths()?;
+    let paths_lits
+        = command_cli_attributes.take_paths()?;
 
     command_attribute_bag.expect_empty()?;
+
+    let mut partial_struct_members
+        = vec![];
+
+    let mut initialization_members
+        = vec![];
 
     if !is_default && paths_lits.is_empty() {
         return Err(syn::Error::new_spanned(input.ident, "The command must have a path"));
@@ -252,6 +258,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
     for field in &mut struct_input.fields {
         let field_ident = &field.ident;
+        let field_type = &field.ty;
 
         let mut internal_field_type = &field.ty;
         let mut is_option_type = false;
@@ -344,38 +351,64 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 quote! {value.parse()}
             };
 
-            let value_converter_with_check = quote! {
+            let value_converter = quote! {
                 #value_converter.map_err(|err| clipanion::details::HydrationError::new(err))?
             };
 
-            let value_creator = match is_option_type {
-                true => quote! {Some(#value_converter_with_check)},
-                false => quote! {#value_converter_with_check},
-            };
+            let default_value
+                = option_bag.attributes.take("default");
 
-            if let Some(initial) = option_bag.attributes.take("default") {
-                default_hydrater.push(quote! {
-                    self.#field_ident = #initial;
+            if is_vec_type {
+                partial_struct_members.push(quote! {
+                    #field_ident: Vec<#field_type>,
+                });
+
+                option_hydrater.push(quote! {
+                    if option.0.as_str() == #preferred_name_lit {
+                        if let clipanion::core::OptionValue::#value_type(value) = option.1 {
+                            partial.#field_ident.push(#value_converter);
+                            continue;
+                        }
+                    }
+                });
+
+                initialization_members.push(quote! {
+                    #field_ident: Vec::new(),
+                });
+            } else {
+                partial_struct_members.push(quote! {
+                    #field_ident: Option<#field_type>,
+                });
+
+                if is_option_type {
+                    option_hydrater.push(quote! {
+                        if option.0.as_str() == #preferred_name_lit {
+                            if let clipanion::core::OptionValue::#value_type(value) = option.1 {
+                                partial.#field_ident = Some(Some(#value_converter));
+                                continue;
+                            }
+                        }
+                    });
+                } else {
+                    option_hydrater.push(quote! {
+                        if option.0.as_str() == #preferred_name_lit {
+                            if let clipanion::core::OptionValue::#value_type(value) = option.1 {
+                                partial.#field_ident = Some(#value_converter);
+                                continue;
+                            }
+                        }
+                    });
+                }
+
+                let accessor = match default_value {
+                    Some(expr) => quote! { partial.#field_ident.or_else(|| Some(#expr)) },
+                    None => quote! { partial.#field_ident },
+                };
+
+                initialization_members.push(quote! {
+                    #field_ident: #accessor.unwrap(),
                 });
             }
-
-            let value_hydrater = match is_vec_type {
-                true => quote! {
-                    self.#field_ident.push(#value_creator);
-                },
-                false => quote! {
-                    self.#field_ident = #value_creator;
-                },
-            };
-
-            option_hydrater.push(quote! {
-                if option.0.as_str() == #preferred_name_lit {
-                    if let clipanion::core::OptionValue::#value_type(value) = option.1 {
-                        #value_hydrater;
-                        continue;
-                    }
-                }
-            });
 
             builder.push(quote! {
                 builder.add_option(clipanion::core::OptionDefinition {
@@ -394,13 +427,21 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 .to_uppercase();
 
             if is_vec_type {
+                partial_struct_members.push(quote! {
+                    #field_ident: Vec<#internal_field_type>,
+                });
+    
                 positional_hydrater.push(quote! {
                     while let Some(clipanion::core::Positional::Rest(value)) = clipanion::details::cautious_take_if(&mut positional_it, |item| matches!(item, clipanion::core::Positional::Rest(_))) {
                         let value = value.as_str().parse()
                             .map_err(|err| clipanion::details::HydrationError::new(err))?;
 
-                        self.#field_ident.push(value);
+                        partial.#field_ident.push(value);
                     }
+                });
+
+                initialization_members.push(quote! {
+                    #field_ident: partial.#field_ident,
                 });
 
                 let add_cmd = match is_proxy {
@@ -412,32 +453,35 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                     builder.#add_cmd(#field_name_upper)?;
                 });
             } else {
-                let value_creator = match is_option_type {
-                    true => quote! {Some(value)},
-                    false => quote! {value},
-                };
+                partial_struct_members.push(quote! {
+                    #field_ident: Option<#field_type>,
+                });
 
                 if is_option_type {
                     positional_hydrater.push(quote! {
                         if let Some(clipanion::core::Positional::Optional(value)) = clipanion::details::cautious_take_if(&mut positional_it, |item| matches!(item, clipanion::core::Positional::Required(_))) {
-                            let value = #value_creator.as_str().try_into()
+                            let value = value.as_str().try_into()
                                 .map_err(|err| clipanion::details::HydrationError::new(err))?;
 
-                            self.#field_ident = value;
+                            partial.#field_ident = Some(Some(value));
                         }
                     });
                 } else {
                     positional_hydrater.push(quote! {
                         if let Some(clipanion::core::Positional::Required(value)) = positional_it.next() {
-                            let value = #value_creator.as_str().try_into()
+                            let value = value.as_str().try_into()
                                 .map_err(|err| clipanion::details::HydrationError::new(err))?;
 
-                            self.#field_ident = value;
+                            partial.#field_ident = Some(value);
                         } else {
                             panic!("Internal error: Unexpected positional type during the Clipanion hydration");
                         }
                     });
                 }
+
+                initialization_members.push(quote! {
+                    #field_ident: partial.#field_ident.unwrap(),
+                });
 
                 builder.push(quote! {
                     builder.add_positional(!#is_option_type, #field_name_upper)?;
@@ -453,15 +497,10 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
         fields.named.push(syn::parse_quote! {cli_info: clipanion::advanced::Info});
     }
 
-    default_hydrater.push(quote! {
-        self.cli_path = vec![];
-        self.cli_info = info.clone();
-    });
-
-    let struct_name = &input.ident;
+    let struct_name
+        = &input.ident;
 
     let expanded = quote! {
-        #[derive(Default)]
         #input
 
         impl clipanion::details::CommandController for #struct_name {
@@ -480,8 +519,14 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 Ok(())
             }
 
-            fn hydrate_command_from_state(&mut self, info: &clipanion::advanced::Info, state: clipanion::core::RunState) -> Result<(), clipanion::details::HydrationError> {
-                #(#default_hydrater)*
+            fn hydrate_command_from_state(info: &clipanion::advanced::Info, state: clipanion::core::RunState) -> Result<Self, clipanion::details::HydrationError> {
+                #[derive(Default)]
+                struct Partial {
+                    #(#partial_struct_members)*
+                }
+
+                let mut partial
+                    = Partial::default();
 
                 for option in state.options {
                     #(#option_hydrater)*
@@ -493,7 +538,11 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
                 #(#positional_hydrater)*
 
-                Ok(())
+                Ok(Self {
+                    cli_path: state.path.clone(),
+                    cli_info: info.clone(),
+                    #(#initialization_members)*
+                })
             }
         }
     };

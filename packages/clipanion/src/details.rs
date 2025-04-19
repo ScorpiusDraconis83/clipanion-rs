@@ -106,7 +106,7 @@ impl<T: Into<CommandResult>, E: Display> From<Result<T, E>> for CommandResult {
 pub trait CommandController {
     fn command_usage(opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
     fn attach_command_to_cli(builder: &mut clipanion_core::CommandBuilder) -> Result<(), clipanion_core::BuildError>;
-    fn hydrate_command_from_state(&mut self, info: &Info, state: clipanion_core::RunState) -> Result<(), HydrationError>;
+    fn hydrate_command_from_state(info: &Info, state: clipanion_core::RunState) -> Result<Self, HydrationError> where Self: Sized;
 }
 
 /**
