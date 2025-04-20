@@ -360,7 +360,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
             if is_vec_type {
                 partial_struct_members.push(quote! {
-                    #field_ident: Vec<#field_type>,
+                    #field_ident: Vec<#internal_field_type>,
                 });
 
                 option_hydrater.push(quote! {

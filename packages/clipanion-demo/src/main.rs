@@ -1,4 +1,4 @@
-use std::process::ExitCode;
+use std::{process::ExitCode, str::FromStr};
 
 use clipanion::prelude::*;
 
@@ -6,6 +6,29 @@ use clipanion::prelude::*;
 enum Error {
     #[error("Oh no! Something bad happened!")]
     ArbitraryError,
+}
+
+#[derive(Debug)]
+struct HexColor {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl FromStr for HexColor {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() != 7 || !s.starts_with('#') {
+            return Err(Error::ArbitraryError);
+        }
+
+        let r = u8::from_str_radix(&s[1..3], 16).map_err(|_| Error::ArbitraryError)?;
+        let g = u8::from_str_radix(&s[3..5], 16).map_err(|_| Error::ArbitraryError)?;
+        let b = u8::from_str_radix(&s[5..7], 16).map_err(|_| Error::ArbitraryError)?;
+
+        Ok(HexColor { r, g, b })
+    }
 }
 
 #[derive(Debug)]
@@ -30,7 +53,7 @@ impl Cp {
 #[cli::path("grep")]
 struct Grep {
     #[cli::option("--color")]
-    color: Option<String>,
+    color: Option<HexColor>,
 }
 
 impl Grep {
@@ -111,7 +134,23 @@ impl YarnRunDefault {
     }
 }
 
+#[cli::command(proxy)]
+#[cli::path("colorlist")]
+struct ColorList {
+    #[cli::option("--color", help = "Color to list", default = vec![])]
+    color_options: Vec<HexColor>,
+
+    colors: Vec<HexColor>,
+}
+
+impl ColorList {
+    pub fn execute(&self) {
+        println!("{:?}", self.colors);
+    }
+}
+
 clipanion::program!(MyCli, [
+    ColorList,
     Cp,
     Grep,
     Ssh,
