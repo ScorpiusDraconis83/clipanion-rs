@@ -1,6 +1,15 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::{actions::{Check, Reducer}, errors::BuildError, machine::Machine, node::Node, shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandError};
+use crate::{actions::{Check, Reducer}, errors::BuildError, machine, node::Node, shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandError};
+
+pub type Machine
+    = machine::Machine<Check, Reducer>;
+
+#[derive(Debug, Default)]
+pub struct MachineContext {
+    pub preferred_names: HashMap<String, String>,
+    pub valid_bindings: HashSet<String>,
+}
 
 pub struct CliBuilder {
     pub commands: Vec<CommandBuilder>,
@@ -250,16 +259,21 @@ impl CommandBuilder {
     }
 
     pub fn compile(&self) -> Machine {
-        let mut machine = Machine::new();
+        let mut machine = Machine::new(MachineContext::default());
 
         let context = &mut machine.contexts[0];
 
         context.preferred_names = self.preferred_names.clone();
         context.valid_bindings = self.valid_bindings.clone();
 
-        let first_node_id = machine.inject_node(Node::new());
+        let first_node_id: usize = machine.inject_node(Node::new());
 
-        machine.register_static(INITIAL_NODE_ID, Arg::StartOfInput, first_node_id, Reducer::InitializeState(self.cli_index, self.required_options.clone()));
+        machine.register_static(
+            INITIAL_NODE_ID,
+            Arg::StartOfInput,
+            first_node_id,
+            Reducer::InitializeState(self.cli_index, self.required_options.clone()),
+        );
 
         let positional_argument = match self.arity.proxy {
             true => Check::Always,
@@ -274,7 +288,7 @@ impl CommandBuilder {
             // some redundancy with the options attached later.
             if !path.is_empty() {
                 let option_node_id = machine.inject_node(Node::new());
-                machine.register_shortcut(last_path_node_id, option_node_id, Reducer::None);
+                machine.register_shortcut(last_path_node_id, option_node_id);
                 self.register_options(&mut machine, option_node_id);
                 last_path_node_id = option_node_id;
             }
@@ -328,7 +342,7 @@ impl CommandBuilder {
             let mut last_extra_node_id = last_leading_node_id;
             if self.arity.rest.is_some() || !self.arity.optionals.is_empty() {
                 let extra_shortcut_node_id = machine.inject_node(Node::new());
-                machine.register_shortcut(last_leading_node_id, extra_shortcut_node_id, Reducer::None);
+                machine.register_shortcut(last_leading_node_id, extra_shortcut_node_id);
 
                 if self.arity.rest.is_some() {
                     let extra_node_id = machine.inject_node(Node::new());
@@ -339,7 +353,7 @@ impl CommandBuilder {
 
                     machine.register_dynamic(last_leading_node_id, positional_argument.clone(), extra_node_id, Reducer::PushRest);
                     machine.register_dynamic(extra_node_id, positional_argument.clone(), extra_node_id, Reducer::PushRest);
-                    machine.register_shortcut(extra_node_id, extra_shortcut_node_id, Reducer::None);
+                    machine.register_shortcut(extra_node_id, extra_shortcut_node_id);
                 } else {
                     for _ in 0..self.arity.optionals.len() {
                         let extra_node_id = machine.inject_node(Node::new());
@@ -349,7 +363,7 @@ impl CommandBuilder {
                         }
 
                         machine.register_dynamic(last_extra_node_id, positional_argument.clone(), extra_node_id, Reducer::PushOptional);
-                        machine.register_shortcut(extra_node_id, extra_shortcut_node_id, Reducer::None);
+                        machine.register_shortcut(extra_node_id, extra_shortcut_node_id);
                         last_extra_node_id = extra_node_id;
                     }
                 }
@@ -435,7 +449,7 @@ impl CommandBuilder {
 
                 // In the end, we register a shortcut from
                 // the last node back to the starting node
-                machine.register_shortcut(last_node_id, node_id, Reducer::None);
+                machine.register_shortcut(last_node_id, node_id);
             }
         }
     }

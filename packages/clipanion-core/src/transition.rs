@@ -1,20 +1,22 @@
-use crate::{actions::Reducer, shared::{is_terminal_node, CUSTOM_NODE_ID}};
+use crate::shared::{is_terminal_node, CUSTOM_NODE_ID};
 
 #[derive(Debug, Default, Clone)]
-pub struct Transition {
+pub struct Transition<TReducer> {
     pub to: usize,
-    pub reducer: Reducer,
+    pub reducer: TReducer,
 }
 
-impl Transition {
-    pub fn new(to: usize, reducer: Reducer) -> Transition {
+impl<TReducer> Transition<TReducer> {
+    pub fn new(to: usize, reducer: TReducer) -> Transition<TReducer> {
         Transition {
             to,
             reducer,
         }
     }
+}
 
-    pub fn clone_to_offset(&self, offset: usize) -> Transition {
+impl<TReducer: Clone> Transition<TReducer> {
+    pub fn clone_to_offset(&self, offset: usize) -> Transition<TReducer> {
         let to = if is_terminal_node(self.to) {
             self.to
         } else if self.to >= CUSTOM_NODE_ID {

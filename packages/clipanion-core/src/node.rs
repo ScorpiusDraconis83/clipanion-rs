@@ -1,21 +1,34 @@
 use std::collections::HashMap;
 
-use crate::{actions::Check, shared::Arg, transition::Transition};
+use crate::{shared::Arg, transition::Transition};
 
-#[derive(Debug, Default, Clone)]
-pub struct Node {
+#[derive(Debug, Clone)]
+pub struct Node<TCheck, TReducer> {
     pub context: usize,
-    pub dynamics: Vec<(Check, Transition)>,
-    pub shortcuts: Vec<Transition>,
-    pub statics: HashMap<Arg, Vec<Transition>>,
+    pub dynamics: Vec<(TCheck, Transition<TReducer>)>,
+    pub shortcuts: Vec<Transition<TReducer>>,
+    pub statics: HashMap<Arg, Vec<Transition<TReducer>>>,
 }
 
-impl Node {
-    pub fn new() -> Node {
-        Default::default()
+impl<TCheck, TReducer> Node<TCheck, TReducer> {
+    pub fn new() -> Self {
+        Self {
+            context: 0,
+            dynamics: vec![],
+            shortcuts: vec![],
+            statics: HashMap::new(),
+        }
     }
+}
 
-    pub fn clone_to_offset(&self, offset: usize) -> Node {
+impl<TCheck, TReducer> Default for Node<TCheck, TReducer> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl <TCheck, TReducer> Node<TCheck, TReducer> {
+    pub fn clone_to_offset(&self, offset: usize) -> Self where TCheck: Clone, TReducer: Clone {
         let mut out = Node::new();
 
         for (check, transition) in self.dynamics.iter() {

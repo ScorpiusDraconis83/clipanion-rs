@@ -1,22 +1,16 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::HashSet, fmt::Debug};
 
-use crate::{actions::{Check, Reducer}, node::Node, shared::{is_terminal_node, Arg, CUSTOM_NODE_ID, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, transition::Transition};
+use crate::{node::Node, shared::{is_terminal_node, Arg, CUSTOM_NODE_ID, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, transition::Transition};
 
-#[derive(Debug, Default)]
-pub struct MachineContext {
-    pub preferred_names: HashMap<String, String>,
-    pub valid_bindings: HashSet<String>,
+pub struct Machine<TCheck, TReducer> {
+    pub contexts: Vec<usize>,
+    pub nodes: Vec<Node<TCheck, TReducer>>,
 }
 
-pub struct Machine {
-    pub contexts: Vec<MachineContext>,
-    pub nodes: Vec<Node>,
-}
-
-impl std::fmt::Debug for Machine {
+impl<TCheck: Debug, TReducer: Debug> Debug for Machine<TCheck, TReducer> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         for (id, node) in self.nodes.iter().enumerate() {
-            writeln!(f, "Node {}:", id)?;
+            writeln!(f, "Node {} ({}):", id, node.context)?;
 
             if id == ERROR_NODE_ID {
                 writeln!(f, "  [Error]")?;
@@ -25,7 +19,7 @@ impl std::fmt::Debug for Machine {
             }
 
             for (check, transition) in node.dynamics.iter() {
-                writeln!(f, "  Dynamic: {:?} -> {}", check, transition.to)?;
+                writeln!(f, "  Dynamic: {:?} -> {:?} -> {}", check, transition.reducer, transition.to)?;
             }
 
             for transition in node.shortcuts.iter() {
@@ -34,7 +28,7 @@ impl std::fmt::Debug for Machine {
 
             for (segment, transitions) in node.statics.iter() {
                 for transition in transitions.iter() {
-                    writeln!(f, "  Static: {:?} -> {}", segment, transition.to)?;
+                    writeln!(f, "  Static: {:?} -> {:?} -> {}", segment, transition.reducer, transition.to)?;
                 }
             }
         }
@@ -43,10 +37,10 @@ impl std::fmt::Debug for Machine {
     }
 }
 
-impl Default for Machine {
-    fn default() -> Machine {
-        let mut default = Machine {
-            contexts: vec![MachineContext::default()],
+impl<TCheck, TReducer> Machine<TCheck, TReducer> {
+    pub fn new(context: usize) -> Self {
+        let mut default = Self {
+            contexts: vec![context],
             nodes: vec![],
         };
 
@@ -56,22 +50,47 @@ impl Default for Machine {
 
         default
     }
-}
 
-impl Machine {
-    pub fn new() -> Machine {
-        Default::default()
+    pub fn create_node(&mut self) -> usize {
+        self.inject_node(Node::new())
     }
 
-    pub fn new_any_of<I>(machines: I) -> Machine where I: IntoIterator<Item = Machine> {
-        let mut out = Machine::new();
+    pub fn inject_node(&mut self, node: Node<TCheck, TReducer>) -> usize {
+        self.nodes.push(node);
+        self.nodes.len() - 1
+    }
+
+    pub fn register_dynamic(&mut self, from: usize, check: TCheck, to: usize, reducer: TReducer) {
+        self.nodes[from].dynamics.push((check, Transition::new(to, reducer)));
+    }
+
+    pub fn register_shortcut(&mut self, from: usize, to: usize) where TReducer: Default {
+        self.nodes[from].shortcuts.push(Transition::new(to, Default::default()));
+    }
+
+    pub fn register_static(&mut self, from: usize, key: Arg, to: usize, reducer: TReducer) {
+        self.nodes[from].statics.entry(key).or_default().push(Transition::new(to, reducer));
+    }
+
+    pub fn new_any_of<I>(machines: I) -> Self where TCheck: Clone, TReducer: Clone + Default, I: IntoIterator<Item = Self> {
+        let mut out = Machine {
+            contexts: vec![],
+            nodes: vec![],
+        };
+
+        for _ in 0..CUSTOM_NODE_ID {
+            out.nodes.push(Node::new());
+        }
 
         for machine in machines {
-            let context_offset = out.contexts.len();
-            let node_offset = out.nodes.len();
+            let context_offset
+                = out.contexts.len();
+
+            let node_offset
+                = out.nodes.len();
 
             out.contexts.extend(machine.contexts);
-            out.register_shortcut(INITIAL_NODE_ID, node_offset, Reducer::None);
+            out.register_shortcut(INITIAL_NODE_ID, node_offset);
 
             for id in 0..machine.nodes.len() {
                 if !is_terminal_node(id) {
@@ -85,80 +104,96 @@ impl Machine {
         out
     }
 
-    pub fn inject_node(&mut self, node: Node) -> usize {
-        self.nodes.push(node);
-        self.nodes.len() - 1
-    }
+    fn resolve_passthrough(&self, mut id: usize) -> usize {
+        loop {
+            let node
+                = &self.nodes[id];
 
-    pub fn register_dynamic(&mut self, from: usize, check: Check, to: usize, reducer: Reducer) {
-        self.nodes[from].dynamics.push((check, Transition::new(to, reducer)));
-    }
-
-    pub fn register_shortcut(&mut self, from: usize, to: usize, reducer: Reducer) {
-        self.nodes[from].shortcuts.push(Transition::new(to, reducer));
-    }
-
-    pub fn register_static(&mut self, from: usize, key: Arg, to: usize, reducer: Reducer) {
-        self.nodes[from].statics.entry(key).or_default().push(Transition::new(to, reducer));
-    }
-
-    pub fn simplify_machine(&mut self) {
-        let mut visited = HashSet::new();
-        let mut queue = vec![INITIAL_NODE_ID];
-
-        while let Some(node) = queue.pop() {
-            if !visited.insert(node) {
-                continue;
+            if node.shortcuts.len() != 1 || !node.statics.is_empty() || !node.dynamics.is_empty() {
+                break;
             }
 
-            let mut node_def = std::mem::take(&mut self.nodes[node]);
+            id = node.shortcuts[0].to;
+        }
 
-            for (_, transition) in node_def.dynamics.iter() {
-                queue.push(transition.to);
-            }
+        id
+    }
 
-            for transition in node_def.shortcuts.iter() {
-                queue.push(transition.to);
-            }
+    pub fn simplify_machine(&mut self) where TCheck: Debug + Clone + PartialEq, TReducer: Debug, Node<TCheck, TReducer>: Clone, Transition<TReducer>: Clone {
+        let mut visited
+            = HashSet::new();
 
-            for (_, transitions) in node_def.statics.iter() {
-                for transition in transitions.iter() {
+        let mut queue
+            = vec![INITIAL_NODE_ID];
+
+        while let Some(node_id) = queue.pop() {
+            let mut node
+                = self.nodes[node_id].clone();
+
+            for (_, transition) in node.dynamics.iter_mut() {
+                transition.to = self.resolve_passthrough(transition.to);
+                if visited.insert(transition.to) {
                     queue.push(transition.to);
                 }
             }
 
-            let mut shortcuts: HashSet<usize>
-                = HashSet::from_iter(node_def.shortcuts.iter().map(|t| t.to));
-
-            while let Some(Transition {to, ..}) = node_def.shortcuts.pop() {
-                let to_def = self.nodes[to].clone();
-
-                for (segment, transitions) in to_def.statics.iter() {
-                    let store
-                        = node_def.statics.entry(segment.clone()).or_default();
-
-                    for transition in transitions {
-                        if !store.iter().any(|t| t.to == transition.to) {
-                            store.push(transition.clone());
-                        }
-                    }
-                }
-
-                for (check, transition) in to_def.dynamics.iter() {
-                    if !node_def.dynamics.iter().any(|(c, t)| c == check && t.to == transition.to) {
-                        node_def.dynamics.push((check.clone(), transition.clone()));
-                    }
-                }
-
-                for transition in to_def.shortcuts.iter() {
-                    if !shortcuts.contains(&transition.to) {
-                        node_def.shortcuts.push(transition.clone());
-                        shortcuts.insert(transition.to);
+            for (_, transitions) in node.statics.iter_mut() {
+                for transition in transitions.iter_mut() {
+                    transition.to = self.resolve_passthrough(transition.to);
+                    if visited.insert(transition.to) {
+                        queue.push(transition.to);
                     }
                 }
             }
 
-            self.nodes[node] = std::mem::take(&mut node_def);
+            for transition in node.shortcuts.iter_mut() {
+                transition.to = self.resolve_passthrough(transition.to);
+                if visited.insert(transition.to) {
+                    queue.push(transition.to);
+                }
+            }
+
+            std::mem::swap(
+                &mut self.nodes[node_id],
+                &mut node,
+            );
+        }
+
+        let mut in_offset = 0;
+        let mut out_offset = 0;
+
+        let mut map_offset = Vec::with_capacity(self.nodes.len());
+        map_offset.resize(self.nodes.len(), 99);
+
+        self.nodes.retain(|_| {
+            if in_offset < CUSTOM_NODE_ID || visited.contains(&in_offset) {
+                map_offset[in_offset] = out_offset;
+
+                in_offset += 1;
+                out_offset += 1;
+
+                true
+            } else {
+                in_offset += 1;
+
+                false
+            }
+        });
+
+        for node in self.nodes.iter_mut() {
+            for (_, transition) in node.dynamics.iter_mut() {
+                transition.to = map_offset[transition.to];
+            }
+
+            for transition in node.shortcuts.iter_mut() {
+                transition.to = map_offset[transition.to];
+            }
+
+            for (_, transitions) in node.statics.iter_mut() {
+                for transition in transitions.iter_mut() {
+                    transition.to = map_offset[transition.to];
+                }
+            }
         }
     }
 }

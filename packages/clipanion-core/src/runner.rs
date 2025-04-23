@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::{actions::{apply_check, apply_reducer}, errors::Error, machine::{Machine, MachineContext}, shared::{Arg, ERROR_NODE_ID, HELP_COMMAND_INDEX, INITIAL_NODE_ID}};
+use crate::{actions::{apply_check, apply_reducer, Reducer}, builder::{Machine, MachineContext}, errors::Error, shared::{Arg, ERROR_NODE_ID, HELP_COMMAND_INDEX, INITIAL_NODE_ID}};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
@@ -66,7 +66,7 @@ struct RunBranch {
 }
 
 impl RunBranch {
-    pub fn apply_transition(&self, transition: &crate::transition::Transition, context: &MachineContext, segment: &Arg, segment_index: usize) -> RunBranch {
+    pub fn apply_transition(&self, transition: &crate::transition::Transition<Reducer>, context: &MachineContext, segment: &Arg, segment_index: usize) -> RunBranch {
         RunBranch {
             node_id: transition.to,
             state: apply_reducer(&transition.reducer, context, &self.state, segment, segment_index),

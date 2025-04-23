@@ -1,4 +1,4 @@
-use crate::{machine::MachineContext, runner::{OptionValue, Positional, RunState, Token}, shared::{Arg, HELP_COMMAND_INDEX}, CommandError, Error};
+use crate::{runner::{OptionValue, Positional, RunState, Token}, shared::{Arg, HELP_COMMAND_INDEX}, CommandError, Error, builder::MachineContext};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[derive(Default)]
