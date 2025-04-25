@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::{shared::{Arg, INITIAL_NODE_ID}, transition::Transition, Machine};
+use crate::{shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID}, transition::Transition, Machine};
 
 pub trait RunnerState {
     fn get_context_id(&self) -> usize;
@@ -39,10 +39,13 @@ pub struct Runner<'a, TCheck, TReducer, TState> {
     next_states: Vec<TState>,
     machine: &'a Machine<TCheck, TReducer>,
 
+    // Colors are used to avoid infinite loops.
+    node_colors: Vec<usize>,
+    current_color: usize,
 }
 
 impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
-    pub fn run<'b>(machine: &'a Machine<TCheck, TReducer>, it: &[&'b str]) -> Result<Vec<TState>, ()> where TCheck: ValidateTransition<TState>, TReducer: DeriveState<TState> + Debug, TState: Clone + RunnerState, TState: Default + std::fmt::Debug {
+    pub fn run<'b>(machine: &'a Machine<TCheck, TReducer>, args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Vec<TState>, ()> where TCheck: ValidateTransition<TState>, TReducer: DeriveState<TState> + Debug, TState: Clone + RunnerState, TState: Default + std::fmt::Debug {
         let mut runner
             = Runner::<'a, TCheck, TReducer, TState>::new(machine);
 
@@ -55,8 +58,8 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
             state.set_context_id(node.context);
         }
 
-        for token in it.iter() {
-            runner.update(Arg::User(token.to_string()));
+        for arg in args.into_iter() {
+            runner.update(Arg::User(arg.as_ref().to_string()));
         }
 
         runner.update(Arg::EndOfInput);
@@ -68,6 +71,8 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
             states: vec![],
             next_states: vec![],
             machine,
+            node_colors: vec![0; machine.nodes.len()],
+            current_color: 0,
         };
 
         let initial_state
@@ -92,6 +97,11 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
     }
 
     fn transition_to(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: &Arg) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<TState> + Debug, TState: Clone + RunnerState + Debug {
+        self.current_color = self.current_color.wrapping_add(1);
+        self.transition_to_color(from_state, transition, token, self.current_color);
+    }
+
+    fn transition_to_color(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: &Arg, color: usize) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<TState> + Debug, TState: Clone + RunnerState + Debug {
         let mut next_state
             = from_state.clone();
 
@@ -101,11 +111,15 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
             next_state.set_node_id(transition.to);
         }
 
+        self.node_colors[transition.to] = color;
+
         let target_node
             = &self.machine.nodes[transition.to];
 
         for shortcut in &target_node.shortcuts {
-            self.transition_to(&next_state, shortcut, token);
+            if self.node_colors[shortcut.to] != color {
+                self.transition_to_color(&next_state, shortcut, token, color);
+            }
         }
 
         self.next_states.push(next_state);
@@ -123,9 +137,13 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
             let transitions
                 = current_node.statics.get(&token);
 
+            let mut transitioned
+                = false;
+
             if let Some(transitions) = transitions {
                 for transition in transitions {
                     self.transition_to(state, transition, &token);
+                    transitioned = true;
                 }
             }
 
@@ -133,9 +151,24 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
                 for (check, transition) in &current_node.dynamics {
                     if check.check(state, raw) {
                         self.transition_to(state, transition, &token);
+                        transitioned = true;
                     }
                 }
             }
+
+            if !transitioned {
+                let mut next_state = state.clone();
+                next_state.set_node_id(ERROR_NODE_ID);
+                self.next_states.push(next_state);
+            }
+        }
+
+        self.next_states.retain(|state| {
+            state.get_node_id() != ERROR_NODE_ID
+        });
+
+        if self.next_states.is_empty() {
+            println!("no next states due to {:?}", token);
         }
 
         std::mem::swap(&mut self.states, &mut states);

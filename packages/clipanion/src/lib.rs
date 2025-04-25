@@ -17,30 +17,25 @@ macro_rules! program_provider {
         pub struct $name {}
 
         impl $crate::details::CommandProvider for $name {
-            fn command_usage(mut command_index: usize, opts: $crate::core::CommandUsageOptions) -> Result<$crate::core::CommandUsageResult, $crate::core::BuildError> {
+            fn command_usage(command_index: usize, opts: $crate::core::CommandUsageOptions) -> Result<$crate::core::CommandUsageResult, $crate::core::BuildError> {
                 use $crate::details::CommandController;
 
-                // We can't use recursive macros to generate match arms, and
-                // it's not possible yet to get the index of the current
-                // iteration in a `for` loop, so we have to use a manual
-                // counter here and pray the compiler optimizes it.
-                $({
-                    if command_index == 0 {
-                        return <$command>::command_usage(opts);
-                    } else {
-                        command_index -= 1;
-                    }
-                })*
+                const FNS: &[fn($crate::core::CommandUsageOptions) -> Result<$crate::core::CommandUsageResult, $crate::core::BuildError>] = &[
+                    $(<$command>::command_usage),*
+                ];
 
-                unreachable!();
+                FNS[command_index](opts)
             }
 
-            fn register_to_cli_builder(builder: &mut $crate::core::CliBuilder) -> Result<(), $crate::core::BuildError> {
+            fn build_cli() -> Result<$crate::core::CliBuilder, $crate::core::BuildError> {
                 use $crate::details::CommandController;
 
-                $(<$command>::attach_command_to_cli(builder.add_command())?;)*
+                let mut builder
+                    = $crate::core::CliBuilder::new();
 
-                Ok(())
+                $(builder.add_command(<$command>::command_spec()?);)*
+
+                Ok(builder)
             }
         }
     }
@@ -50,11 +45,11 @@ macro_rules! program_provider {
 macro_rules! program_executor {
     ($name:ident, [$($command:ty),* $(,)?]) => {
         impl $crate::details::CommandExecutor for $name {
-            fn execute_cli_state(info: &$crate::advanced::Info, state: $crate::core::RunState) -> $crate::details::CommandResult {
+            fn execute_cli_state(environment: &$crate::advanced::Environment, state: $crate::core::State) -> $crate::details::CommandResult {
                 use $crate::details::CommandController;
 
                 let mut command_index
-                    = state.selected_index.unwrap();
+                    = state.context_id;
 
                 // We can't use recursive macros to generate match arms, and
                 // it's not possible yet to get the index of the current
@@ -63,7 +58,7 @@ macro_rules! program_executor {
                 $({
                     if command_index == 0 {
                         let hydration_result
-                            = <$command>::hydrate_command_from_state(info, state);
+                            = <$command>::hydrate_command_from_state(&environment, &state);
                         
                         let command = match hydration_result {
                             Err(hydration_error) => return hydration_error.into(),
@@ -86,11 +81,11 @@ macro_rules! program_executor {
 
     ($name:ident, [$($command:ty),* $(,)?], async) => {
         impl $crate::details::CommandExecutorAsync for $name {
-            async fn execute_cli_state(info: &$crate::advanced::Info, state: $crate::core::RunState) -> $crate::details::CommandResult {
+            async fn execute_cli_state<'a>(environment: &$crate::advanced::Environment, state: $crate::core::State<'a>) -> $crate::details::CommandResult {
                 use $crate::details::CommandController;
 
                 let mut command_index
-                    = state.selected_index.unwrap();
+                    = state.context_id;
 
                 // We can't use recursive macros to generate match arms, and
                 // it's not possible yet to get the index of the current
@@ -99,7 +94,7 @@ macro_rules! program_executor {
                 $({
                     if command_index == 0 {
                         let hydration_result
-                            = <$command>::hydrate_command_from_state(info, state);
+                            = <$command>::hydrate_command_from_state(&environment, &state);
                         
                         let command = match hydration_result {
                             Err(hydration_error) => return hydration_error.into(),

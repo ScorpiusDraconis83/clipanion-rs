@@ -6,15 +6,21 @@ mod node;
 // mod runner;
 mod shared;
 mod transition;
+mod usage;
 
-mod builder2;
-mod runner2;
+#[cfg(test)]
+mod fuzzy_tests;
 
-// pub use builder::*;
+pub mod builder2;
+pub mod runner2;
+
+pub use builder2::*;
 pub use errors::*;
 pub use machine::Machine;
 // pub use runner::{OptionValue, Positional, RunState, run_machine, run_partial_machine};
+pub use runner2::*;
 pub use shared::HELP_COMMAND_INDEX;
+pub use usage::*;
 
 // #[test]
 // fn it_should_select_the_default_command_when_using_no_arguments() {

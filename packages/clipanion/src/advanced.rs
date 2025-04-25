@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use clipanion_core::{RunState, HELP_COMMAND_INDEX};
+use clipanion_core::{CommandSpec, Info, State};
 
 use crate::{details::{CommandExecutor, CommandExecutorAsync, CommandProvider, CommandResult}, format::Formatter};
 
@@ -9,23 +9,19 @@ use crate::{details::{CommandExecutor, CommandExecutorAsync, CommandProvider, Co
  * just use the `run_with_default()` function instead.
  */
 
-#[derive(Debug, Clone)]
-pub struct Info {
+ #[derive(Debug, Clone)]
+ pub struct Environment {
+    pub info: Info,
     pub argv: Vec<String>,
-    pub program_name: String,
-    pub binary_name: String,
-    pub version: String,
-    pub about: String,
-    pub colorized: bool,
-}
-
-impl Info {
+ }
+ 
+impl Environment {
     pub fn with_argv(&self, argv: Vec<String>) -> Self {
         Self {argv, ..self.clone()}
     }
 }
 
-impl Default for Info {
+impl Default for Environment {
     fn default() -> Self {
         let binary_name = std::env::args()
             .next().unwrap()
@@ -34,69 +30,55 @@ impl Default for Info {
 
         Self {
             argv: std::env::args().skip(1).collect(),
-            program_name: env!("CARGO_PKG_NAME").to_string(),
-            binary_name,
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            about: env!("CARGO_PKG_DESCRIPTION").to_string(),
-            colorized: true,
+            info: Info {
+                program_name: env!("CARGO_PKG_NAME").to_string(),
+                binary_name,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                about: env!("CARGO_PKG_DESCRIPTION").to_string(),
+                colorized: true,
+            },
         }
     }
 }
 
-enum PrepareResult {
+enum PrepareResult<'a> {
     Success,
     Failure,
-    Ready(usize, RunState),
+    Ready(State<'a>, &'a CommandSpec),
 }
 
-fn prepare_command<S: CommandProvider>(info: &Info) -> PrepareResult {
-    let mut builder = clipanion_core::CliBuilder::new();
-
-    S::register_to_cli_builder(&mut builder)
-        .unwrap();
-
-    let machine
-        = builder.compile();
-
+fn prepare_command<'a, S: CommandProvider>(builder: &'a clipanion_core::CliBuilder, env: &Environment) -> PrepareResult<'a> {
     let parse_result
-        = clipanion_core::run_machine(&machine, &info.argv);
+        = builder.run(&env.argv);
 
-    if let Err(parse_error) = parse_result {
-        println!("{}", Formatter::<S>::format_parse_error(&info, &parse_error));
+    let Ok((state, command)) = parse_result else {
+        println!("{}", Formatter::<S>::format_parse_error(&env.info, &parse_result.unwrap_err()));
         return PrepareResult::Failure;
-    }
+    };
 
-    let parse_state
-        = parse_result.unwrap();
-
-    if parse_state.selected_index == Some(HELP_COMMAND_INDEX) {
-        println!("TODO: Show the help message");
-        return PrepareResult::Success;
-    }
-
-    let command_index
-        = parse_state.selected_index.unwrap();
-
-    PrepareResult::Ready(command_index, parse_state)
+    PrepareResult::Ready(state, command)
 }
 
-fn finalize_command<S: CommandProvider>(command_index: usize, info: &Info, command_result: CommandResult) -> std::process::ExitCode {
+fn finalize_command<S: CommandProvider>(env: &Environment, command_spec: &CommandSpec, command_result: CommandResult) -> std::process::ExitCode {
     if let Some(err) = &command_result.error_message {
-        println!("{}", Formatter::<S>::format_error(&info, "Error", &err, [command_index]));
+        println!("{}", Formatter::<S>::format_error(&env.info, "Error", &err, vec![command_spec]));
     }
 
     command_result.exit_code
 }
 
 pub trait Cli {
-    fn run(info: Info) -> std::process::ExitCode;
+    fn run(env: Environment) -> std::process::ExitCode;
     fn run_default() -> std::process::ExitCode;
 }
 
 impl<S: CommandProvider + CommandExecutor> Cli for S {
-    fn run(info: Info) -> std::process::ExitCode {
+    fn run(env: Environment) -> std::process::ExitCode {
+        let builder = S::build_cli()
+            .unwrap();
+
         let preparation
-            = prepare_command::<S>(&info);
+            = prepare_command::<S>(&builder, &env);
 
         match preparation {
             PrepareResult::Success
@@ -105,11 +87,11 @@ impl<S: CommandProvider + CommandExecutor> Cli for S {
             PrepareResult::Failure
                 => std::process::ExitCode::FAILURE,
 
-            PrepareResult::Ready(command_index, parse_state) => {
+            PrepareResult::Ready(state, command_spec) => {
                 let command_result
-                    = S::execute_cli_state(&info, parse_state);
+                    = S::execute_cli_state(&env, state);
 
-                finalize_command::<S>(command_index, &info, command_result)
+                finalize_command::<S>(&env, &command_spec, command_result)
             },
         }
     }
@@ -120,14 +102,17 @@ impl<S: CommandProvider + CommandExecutor> Cli for S {
 }
 
 pub trait CliAsync {
-    fn run(info: Info) -> impl Future<Output = std::process::ExitCode>;
+    fn run(env: Environment) -> impl Future<Output = std::process::ExitCode>;
     fn run_default() -> impl Future<Output = std::process::ExitCode>;
 }
 
 impl<S: CommandProvider + CommandExecutorAsync> CliAsync for S {
-    async fn run(info: Info) -> std::process::ExitCode {
+    async fn run(env: Environment) -> std::process::ExitCode {
+        let builder = S::build_cli()
+            .unwrap();
+
         let preparation
-            = prepare_command::<S>(&info);
+            = prepare_command::<S>(&builder, &env);
 
         match preparation {
             PrepareResult::Success
@@ -136,11 +121,11 @@ impl<S: CommandProvider + CommandExecutorAsync> CliAsync for S {
             PrepareResult::Failure
                 => std::process::ExitCode::FAILURE,
 
-            PrepareResult::Ready(command_index, parse_state) => {
+            PrepareResult::Ready(state, command_spec) => {
                 let command_result
-                    = S::execute_cli_state(&info, parse_state).await;
+                    = S::execute_cli_state(&env, state).await;
 
-                finalize_command::<S>(command_index, &info, command_result)
+                finalize_command::<S>(&env, &command_spec, command_result)
             },
         }
     }

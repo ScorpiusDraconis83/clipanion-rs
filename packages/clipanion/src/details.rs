@@ -1,6 +1,8 @@
 use std::{fmt::Display, future::Future, iter::Peekable};
 
-use crate::advanced::Info;
+use clipanion_core::CommandSpec;
+
+use crate::advanced::Environment;
 
 /**
  * Internal error type that may be emitted during `hydrate_command_from_state`
@@ -105,8 +107,8 @@ impl<T: Into<CommandResult>, E: Display> From<Result<T, E>> for CommandResult {
  */
 pub trait CommandController {
     fn command_usage(opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
-    fn attach_command_to_cli(builder: &mut clipanion_core::CommandBuilder) -> Result<(), clipanion_core::BuildError>;
-    fn hydrate_command_from_state(info: &Info, state: clipanion_core::RunState) -> Result<Self, HydrationError> where Self: Sized;
+    fn command_spec() -> Result<CommandSpec, clipanion_core::BuildError>;
+    fn hydrate_command_from_state(environment: &Environment, state: &clipanion_core::State) -> Result<Self, HydrationError> where Self: Sized;
 }
 
 /**
@@ -115,15 +117,15 @@ pub trait CommandController {
  */
 pub trait CommandProvider {
     fn command_usage(command_index: usize, opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
-    fn register_to_cli_builder(builder: &mut clipanion_core::CliBuilder) -> Result<(), clipanion_core::BuildError>;
+    fn build_cli() -> Result<clipanion_core::CliBuilder, clipanion_core::BuildError>;
 }
 
 pub trait CommandExecutor {
-    fn execute_cli_state(info: &Info, state: clipanion_core::RunState) -> crate::details::CommandResult;
+    fn execute_cli_state<'a>(env: &Environment, state: clipanion_core::State<'a>) -> crate::details::CommandResult;
 }
 
 pub trait CommandExecutorAsync {
-    fn execute_cli_state(info: &Info, state: clipanion_core::RunState) -> impl Future<Output = crate::details::CommandResult>;
+    fn execute_cli_state<'a>(env: &Environment, state: clipanion_core::State<'a>) -> impl Future<Output = crate::details::CommandResult>;
 }
 
 pub fn cautious_take_if<T: Iterator>(it: &mut Peekable<T>, check: impl FnOnce(&T::Item) -> bool) -> Option<T::Item> {

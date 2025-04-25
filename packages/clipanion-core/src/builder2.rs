@@ -1,6 +1,18 @@
-use std::iter::once;
+use std::{fmt::Display, iter::once};
 
-use crate::{machine, runner2::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, INITIAL_NODE_ID, SUCCESS_NODE_ID}};
+use colored::Colorize;
+use itertools::Itertools;
+
+use crate::{machine, runner2::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageOptions, CommandUsageResult, Error};
+
+#[derive(Debug, Clone)]
+pub struct Info {
+    pub program_name: String,
+    pub binary_name: String,
+    pub version: String,
+    pub about: String,
+    pub colorized: bool,
+}
 
 #[derive(Debug)]
 pub struct Context {
@@ -9,19 +21,31 @@ pub struct Context {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct State {
-    context_id: usize,
-    node_id: usize,
-    keyword_count: usize,
-    values: Vec<(usize, Vec<String>)>,
+pub struct State<'a> {
+    pub context_id: usize,
+    pub node_id: usize,
+    pub keyword_count: usize,
+    pub path: Vec<&'a str>,
+    pub positional_values: Vec<(usize, Vec<&'a str>)>,
+    pub option_values: Vec<(usize, Vec<&'a str>)>,
+}
+
+impl<'a> State<'a> {
+    pub fn values(&self) -> Vec<(usize, Vec<&'a str>)> {
+        self.positional_values.clone()
+            .into_iter()
+            .chain(self.option_values.clone().into_iter())
+            .sorted_by_key(|(id, _)| *id)
+            .collect()
+    }
 }
 
 pub trait SelectBestState<'a> {
-    fn select_best_state(self) -> State;
+    fn select_best_state(self) -> Result<State<'a>, Error<'a>>;
 }
 
-impl<'a> SelectBestState<'a> for Vec<State> {
-    fn select_best_state(self) -> State {
+impl<'a> SelectBestState<'a> for Vec<State<'a>> {
+    fn select_best_state(self) -> Result<State<'a>, Error<'a>> {
         let mut all_states = self;
 
         let highest_keyword_count = all_states.iter()
@@ -33,11 +57,15 @@ impl<'a> SelectBestState<'a> for Vec<State> {
             state.keyword_count == highest_keyword_count
         });
 
-        all_states.pop().unwrap()
+        let state
+            = all_states.pop()
+                .ok_or(Error::NotFound(vec![]))?;
+
+        Ok(state)
     }
 }
 
-impl RunnerState for State {
+impl<'a> RunnerState for State<'a> {
     fn get_context_id(&self) -> usize {
         self.context_id
     }
@@ -55,31 +83,41 @@ impl RunnerState for State {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-enum Check {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Check {
+    IsOptionLike,
+    IsNotOptionLike,
 }
 
-impl ValidateTransition<State> for Check {
-    fn check(&self, _state: &State, _arg: &str) -> bool {
-        false
+impl<'a> ValidateTransition<State<'a>> for Check {
+    fn check(&self, _state: &State<'a>, arg: &str) -> bool {
+        match self {
+            Check::IsOptionLike => {
+                arg.starts_with("-")
+            },
+            
+            Check::IsNotOptionLike => {
+                !arg.starts_with("-")
+            },
+        }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Attachment {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Attachment {
     Option,
     Positional,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Reducer {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reducer {
     IncreaseStaticCount,
     StartValue(Attachment, usize),
     PushValue(Attachment),
 }
 
-impl DeriveState<State> for Reducer {
-    fn derive(&self, state: &mut State, target_id: usize, token: &str) -> () {
+impl<'a> DeriveState<State<'a>> for Reducer {
+    fn derive(&self, state: &mut State<'a>, _target_id: usize, token: &str) -> () {
         match self {
             Reducer::IncreaseStaticCount => {
                 state.keyword_count += 1;
@@ -88,15 +126,11 @@ impl DeriveState<State> for Reducer {
             Reducer::StartValue(attachment, positional_id) => {
                 match attachment {
                     Attachment::Option => {
-                        // We insert options at the front. That's because positionals may be
-                        // interrupted by options, but not the other way arround. By keeping
-                        // options at the front, we can always push values to the last
-                        // positional.
-                        state.values.insert(0, (*positional_id, vec![]));
+                        state.option_values.push((*positional_id, vec![]));
                     },
 
                     Attachment::Positional => {
-                        state.values.push((*positional_id, vec![token.to_string()]));
+                        state.positional_values.push((*positional_id, vec![token.to_string()]));
                     },
                 }
             },
@@ -104,14 +138,14 @@ impl DeriveState<State> for Reducer {
             Reducer::PushValue(attachment) => {
                 match attachment {
                     Attachment::Option => {
-                        if let Some((_, ref mut values)) = state.values.first_mut() {
-                            values.push(token.to_string());
+                        if let Some((_, ref mut values)) = state.option_values.last_mut() {
+                            values.push(token);
                         }
                     },
 
                     Attachment::Positional => {
-                        if let Some((_, ref mut values)) = state.values.last_mut() {
-                            values.push(token.to_string());
+                        if let Some((_, ref mut values)) = state.positional_values.last_mut() {
+                            values.push(token);
                         }
                     },
                 }
@@ -123,7 +157,7 @@ impl DeriveState<State> for Reducer {
 type Machine
     = machine::Machine<Option<Check>, Option<Reducer>>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PositionalSpec {
     Keyword {
         expected: String,
@@ -134,49 +168,101 @@ pub enum PositionalSpec {
         description: String,
 
         min_len: usize,
-        max_len: Option<usize>,
+        extra_len: Option<usize>,
     },
 }
 
+fn format_range(f: &mut std::fmt::Formatter<'_>, name: &str, min_len: usize, extra_len: Option<usize>) -> std::fmt::Result {
+    if min_len > 0 {
+        write!(f, "<{}>", name)?;
+
+        for i in 1..min_len {
+            write!(f, " <{}{}>", name, i + 1)?;
+        }
+    }
+
+    let spacing
+        = if min_len > 0 {" "} else {""};
+
+    if extra_len != Some(0) {
+        if let Some(extra_len) = extra_len {
+            write!(f, "{}[…{}{}]", spacing, name, extra_len)?;
+        } else {
+            write!(f, "{}[…{}N]", spacing, name)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn format_collection<T: Display>(f: &mut std::fmt::Formatter<'_>, components: impl IntoIterator<Item = T>, separator: &str) -> std::fmt::Result {
+    let mut first = true;
+
+    for component in components {
+        if !first {
+            write!(f, "{}", separator)?;
+        }
+
+        write!(f, "{}", component)?;
+        first = false;
+    }
+
+    Ok(())
+}
+
+impl std::fmt::Display for PositionalSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PositionalSpec::Keyword {expected} => {
+                write!(f, "{}", expected)
+            },
+
+            PositionalSpec::Dynamic {name, min_len, extra_len, ..} => {
+                format_range(f, name, *min_len, *extra_len)
+            },
+        }
+    }
+}
+
 impl PositionalSpec {
-    fn keyword<T: Into<String>>(value: T) -> Self {
+    pub fn keyword<T: Into<String>>(value: T) -> Self {
         PositionalSpec::Keyword {
             expected: value.into(),
         }
     }
 
-    fn optional() -> Self {
+    pub fn optional() -> Self {
         PositionalSpec::Dynamic {
             name: "".to_string(),
             description: "".to_string(),
 
             min_len: 0,
-            max_len: Some(1),
+            extra_len: Some(1),
         }
     }
 
-    fn required() -> Self {
+    pub fn required() -> Self {
         PositionalSpec::Dynamic {
             name: "".to_string(),
             description: "".to_string(),
             
             min_len: 1,
-            max_len: Some(1),
+            extra_len: Some(0),
         }
     }
 
-    fn rest() -> Self {
+    pub fn rest() -> Self {
         PositionalSpec::Dynamic {
             name: "".to_string(),
             description: "".to_string(),
 
             min_len: 0,
-            max_len: None,
+            extra_len: None,
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OptionSpec {
     pub primary_name: String,
     pub aliases: Vec<String>,
@@ -184,7 +270,7 @@ pub struct OptionSpec {
     pub description: String,
 
     pub min_len: usize,
-    pub max_len: Option<usize>,
+    pub extra_len: Option<usize>,
 
     pub allow_binding: bool,
     pub is_hidden: bool,
@@ -192,14 +278,14 @@ pub struct OptionSpec {
 }
 
 impl OptionSpec {
-    fn boolean<TName: Into<String>>(name: TName) -> Self {
+    pub fn boolean<TName: Into<String>>(name: TName) -> Self {
         OptionSpec {
             primary_name: name.into(),
             aliases: vec![],
             description: "".to_string(),
             
             min_len: 0,
-            max_len: Some(0),
+            extra_len: Some(0),
             
             allow_binding: false,
             is_hidden: false,
@@ -207,14 +293,14 @@ impl OptionSpec {
         }
     }
 
-    fn parametrized<TName: Into<String>>(name: TName) -> Self {
+    pub fn parametrized<TName: Into<String>>(name: TName) -> Self {
         OptionSpec {
             primary_name: name.into(),
             aliases: vec![],
             description: "".to_string(),
             
             min_len: 1,
-            max_len: Some(1),
+            extra_len: Some(0),
             
             allow_binding: false,
             is_hidden: false,
@@ -223,18 +309,66 @@ impl OptionSpec {
     }
 }
 
-#[derive(Clone, Debug)]
+impl std::fmt::Display for OptionSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_required {
+            write!(f, "<{}", self.primary_name)?;
+        } else {
+            write!(f, "[{}", self.primary_name)?;
+        }
+
+        for alias in &self.aliases {
+            write!(f, ",{}", alias)?;
+        }
+
+        if self.min_len > 0 || self.extra_len != Some(0) {
+            write!(f, " ")?;
+            format_range(f, "arg", self.min_len, self.extra_len)?;
+        }
+
+        if self.is_required {
+            write!(f, ">")
+        } else {
+            write!(f, "]")
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Component {
     Positional(PositionalSpec),
     Option(OptionSpec),
 }
 
-#[derive(Clone, Debug)]
+impl std::fmt::Display for Component {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Component::Positional(spec)
+                => write!(f, "{}", spec),
+
+            Component::Option(spec)
+                => write!(f, "{}", spec),
+        }
+    }
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CommandSpec {
+    pub paths: Vec<Vec<String>>,
     pub components: Vec<Component>,
 }
 
+impl std::fmt::Display for CommandSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        format_collection(f, self.components.iter(), " ")?;
+        Ok(())
+    }
+}
+
 impl CommandSpec {
+    pub fn usage(&self) -> CommandUsageResult {
+        CommandUsageResult::new(self.clone())
+    }
+
     pub fn build(&self, command_id: usize) -> Machine {
         CommandBuilderContext::new(&self, command_id).build()
     }
@@ -300,17 +434,15 @@ impl<'a> CommandBuilderContext<'a> {
                 );
 
                 let accepts_arguments
-                    = option.max_len
-                        .map(|max_len| max_len > 0)
-                        .unwrap_or(true);
+                    = option.min_len > 0 || option.extra_len != Some(0);
 
                 if accepts_arguments {
                     self.enter_inhibit_options();
 
                     post_option_node_id = self.attach_variadic(
-                        post_options_node_id,
+                        post_option_node_id,
                         option.min_len,
-                        option.max_len,
+                        option.extra_len,
                         Reducer::PushValue(Attachment::Option),
                         Reducer::PushValue(Attachment::Option),
                     );
@@ -334,7 +466,7 @@ impl<'a> CommandBuilderContext<'a> {
 
         self.machine.register_dynamic(
             pre_node_id,
-            None,
+            Some(Check::IsNotOptionLike),
             next_node_id,
             Some(reducer),
         );
@@ -353,7 +485,7 @@ impl<'a> CommandBuilderContext<'a> {
 
         self.machine.register_dynamic(
             pre_node_id,
-            None,
+            Some(Check::IsNotOptionLike),
             next_node_id,
             Some(reducer),
         );
@@ -361,7 +493,7 @@ impl<'a> CommandBuilderContext<'a> {
         self.attach_options(next_node_id)
     }
 
-    fn attach_variadic(&mut self, pre_node_id: usize, min_len: usize, max_len: Option<usize>, start_action: Reducer, subsequent_actions: Reducer) -> usize {
+    fn attach_variadic(&mut self, pre_node_id: usize, min_len: usize, extra_len: Option<usize>, start_action: Reducer, subsequent_actions: Reducer) -> usize {
         let mut current_node_id
             = pre_node_id;
 
@@ -373,9 +505,9 @@ impl<'a> CommandBuilderContext<'a> {
             next_action = subsequent_actions;
         }
 
-        match max_len {
-            Some(max_len) => {
-                for _ in min_len..max_len {
+        match extra_len {
+            Some(extra_len) => {
+                for _ in 0..extra_len {
                     current_node_id = self.attach_optional(current_node_id, next_action);
                     next_action = subsequent_actions;
                 }
@@ -400,7 +532,7 @@ impl<'a> CommandBuilderContext<'a> {
 
                 self.machine.register_dynamic(
                     next_node_id,
-                    None,
+                    Some(Check::IsNotOptionLike),
                     next_node_id,
                     Some(next_action),
                 );
@@ -449,11 +581,11 @@ impl<'a> CommandBuilderContext<'a> {
                         = self.attach_options(next_node_id);
                 },
 
-                PositionalSpec::Dynamic {min_len, max_len, ..} => {
+                PositionalSpec::Dynamic {min_len, extra_len, ..} => {
                     current_node_id = self.attach_variadic(
                         current_node_id,
                         *min_len,
-                        *max_len,
+                        *extra_len,
                         Reducer::StartValue(Attachment::Positional, id),
                         Reducer::PushValue(Attachment::Positional),
                     );
@@ -473,7 +605,7 @@ impl<'a> CommandBuilderContext<'a> {
 }
 
 #[derive(Clone)]
-struct CliBuilder {
+pub struct CliBuilder {
     commands: Vec<CommandSpec>,
 }
 
@@ -498,22 +630,22 @@ impl CliBuilder {
         let mut machine
             = Machine::new_any_of(command_machines);
 
-        machine.simplify_machine();
+        //machine.simplify_machine();
         machine
     }
 
-    pub fn run(mut self, args: &[&str]) -> (State, CommandSpec) {
+    pub fn run<'a>(&'a self, args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<(State, &'a CommandSpec), Error<'a>> {
         let machine
             = self.compile();
 
         let state
             = runner2::Runner::run(&machine, args).unwrap()
-                .select_best_state();
+                .select_best_state()?;
 
         let command
-            = self.commands.remove(state.context_id);
+            = &self.commands[state.context_id];
 
-        (state, command)
+        Ok((state, command))
     }
 }
 
@@ -523,11 +655,12 @@ fn it_should_select_the_default_command_when_using_no_arguments() {
         = CliBuilder::new();
 
     cli_builder.add_command(CommandSpec {
+        paths: vec![],
         components: vec![],
     });
 
     let (state, _context)
-        = cli_builder.run(&[]);
+        = cli_builder.run(&[""; 0]).unwrap();
 
     assert_eq!(state.context_id, 0);
 }
@@ -538,6 +671,7 @@ fn it_should_select_the_default_command_when_using_mandatory_positional_argument
         = CliBuilder::new();
 
     cli_builder.add_command(CommandSpec {
+        paths: vec![],
         components: vec![
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::required()),
@@ -545,7 +679,7 @@ fn it_should_select_the_default_command_when_using_mandatory_positional_argument
     });
 
     let (state, _context)
-        = cli_builder.run(&["foo", "bar"]);
+        = cli_builder.run(&["foo", "bar"]).unwrap();
 
     assert_eq!(state.context_id, 0);
 }
@@ -556,20 +690,22 @@ fn it_should_select_commands_by_their_path() {
         = CliBuilder::new();
 
     cli_builder.add_command(CommandSpec {
+        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
     });
 
     cli_builder.add_command(CommandSpec {
+        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("bar"))],
     });
 
     let (state, _context)
-        = cli_builder.clone().run(&["foo"]);
+        = cli_builder.run(&["foo"]).unwrap();
 
     assert_eq!(state.context_id, 0);
 
     let (state, _context)
-        = cli_builder.run(&["bar"]);
+        = cli_builder.run(&["bar"]).unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -580,15 +716,17 @@ fn it_should_favor_paths_over_mandatory_positional_arguments() {
         = CliBuilder::new();
 
     cli_builder.add_command(CommandSpec {
+        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::required())],
     });
 
     cli_builder.add_command(CommandSpec {
+        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
     });
 
     let (state, _context)
-        = cli_builder.run(&["foo"]);
+        = cli_builder.run(&["foo"]).unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -599,10 +737,12 @@ fn it_should_favor_paths_over_optional_positional_arguments() {
         = CliBuilder::new();
 
     cli_builder.add_command(CommandSpec {
+        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::optional())],
     });
 
     cli_builder.add_command(CommandSpec {
+        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
     });
 
@@ -610,7 +750,7 @@ fn it_should_favor_paths_over_optional_positional_arguments() {
         = cli_builder.compile();
 
     let (state, _context)
-        = cli_builder.run(&["foo"]);
+        = cli_builder.run(&["foo"]).unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -621,6 +761,7 @@ fn it_should_aggregate_positional_values() {
         = CliBuilder::new();
 
     cli_builder.add_command(CommandSpec {
+        paths: vec![],
         components: vec![
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::required()),
@@ -628,9 +769,9 @@ fn it_should_aggregate_positional_values() {
     });
 
     let (state, _context)
-        = cli_builder.run(&["foo", "bar"]);
+        = cli_builder.run(&["foo", "bar"]).unwrap();
 
-    assert_eq!(state.values, vec![
+    assert_eq!(state.values(), vec![
         (0, vec!["foo".to_string()]),
         (1, vec!["bar".to_string()]),
     ]);
@@ -642,16 +783,19 @@ fn it_should_aggregate_positional_values_with_rest() {
         = CliBuilder::new();
 
     cli_builder.add_command(CommandSpec {
+        paths: vec![],
         components: vec![
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::rest()),
         ],
     });
 
-    let (state, _context)
-        = cli_builder.run(&["foo", "bar", "baz"]);
+    println!("{:?}", cli_builder.compile());
 
-    assert_eq!(state.values, vec![
+    let (state, _context)
+        = cli_builder.run(&["foo", "bar", "baz"]).unwrap();
+
+    assert_eq!(state.values(), vec![
         (0, vec!["foo".to_string()]),
         (1, vec!["bar".to_string(), "baz".to_string()]),
     ]);

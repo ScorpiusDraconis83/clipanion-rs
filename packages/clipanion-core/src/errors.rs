@@ -1,3 +1,5 @@
+use crate::builder2::CommandSpec;
+
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum CommandError {
     #[error("The option `{0}` expects a value")]
@@ -20,18 +22,18 @@ pub enum CommandError {
 }
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
-pub enum Error {
+pub enum Error<'a> {
     #[error("The provided arguments are ambiguous and need to be refined further. Possible options are:")]
-    AmbiguousSyntax(Vec<usize>),
+    AmbiguousSyntax(Vec<&'a CommandSpec>),
 
     #[error("{1}")]
-    CommandError(usize, CommandError),
+    CommandError(&'a CommandSpec, CommandError),
 
     #[error("Something unexpected happened; this seems to be a bug in the CLI framework itself")]
     InternalError,
 
     #[error("The provided arguments don't match any known syntax; use `--help` to get a list of possible options")]
-    NotFound(Vec<usize>),
+    NotFound(Vec<&'a CommandSpec>),
 }
 
 #[derive(thiserror::Error, Debug)]

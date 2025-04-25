@@ -1,12 +1,12 @@
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Arg {
+pub enum Arg<'a> {
     StartOfInput,
-    User(String),
+    User(&'a str),
     EndOfInput,
     EndOfPartialInput,
 }
 
-impl Arg {
+impl<'a> Arg<'a> {
     pub fn starts_with(&self, s: &Arg) -> bool {
         match (self, s) {
             (Arg::User(a), Arg::User(b)) => a.starts_with(b),
