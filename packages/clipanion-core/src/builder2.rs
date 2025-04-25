@@ -1,9 +1,8 @@
 use std::{fmt::Display, iter::once};
 
-use colored::Colorize;
 use itertools::Itertools;
 
-use crate::{machine, runner2::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageOptions, CommandUsageResult, Error};
+use crate::{machine, runner2::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageResult, Error};
 
 #[derive(Debug, Clone)]
 pub struct Info {
@@ -36,6 +35,13 @@ impl<'a> State<'a> {
             .into_iter()
             .chain(self.option_values.clone().into_iter())
             .sorted_by_key(|(id, _)| *id)
+            .collect()
+    }
+
+    pub fn values_owned(self) -> Vec<(usize, Vec<String>)> {
+        self.values()
+            .into_iter()
+            .map(|(id, values)| (id, values.into_iter().map(|s| s.to_string()).collect()))
             .collect()
     }
 }
@@ -116,8 +122,8 @@ pub enum Reducer {
     PushValue(Attachment),
 }
 
-impl<'a> DeriveState<State<'a>> for Reducer {
-    fn derive(&self, state: &mut State<'a>, _target_id: usize, token: &str) -> () {
+impl<'a> DeriveState<'a, State<'a>> for Reducer {
+    fn derive(&self, state: &mut State<'a>, _target_id: usize, token: &'a str) -> () {
         match self {
             Reducer::IncreaseStaticCount => {
                 state.keyword_count += 1;
@@ -130,7 +136,7 @@ impl<'a> DeriveState<State<'a>> for Reducer {
                     },
 
                     Attachment::Positional => {
-                        state.positional_values.push((*positional_id, vec![token.to_string()]));
+                        state.positional_values.push((*positional_id, vec![token]));
                     },
                 }
             },
@@ -154,8 +160,8 @@ impl<'a> DeriveState<State<'a>> for Reducer {
     }
 }
 
-type Machine
-    = machine::Machine<Option<Check>, Option<Reducer>>;
+type Machine<'a>
+    = machine::Machine<'a, Option<Check>, Option<Reducer>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PositionalSpec {
@@ -375,7 +381,7 @@ impl CommandSpec {
 }
 
 pub struct CommandBuilderContext<'a> {
-    machine: Machine,
+    machine: Machine<'a>,
     spec: &'a CommandSpec,
     inhibit_options: usize,
 }
@@ -428,7 +434,7 @@ impl<'a> CommandBuilderContext<'a> {
 
                 self.machine.register_static(
                     pre_options_node_id,
-                    Arg::User(name.to_string()),
+                    Arg::User(name),
                     post_option_node_id,
                     Some(Reducer::StartValue(Attachment::Option, option_id)),
                 );
@@ -542,7 +548,7 @@ impl<'a> CommandBuilderContext<'a> {
         current_node_id
     }
 
-    fn build(mut self) -> Machine {
+    fn build(mut self) -> Machine<'a> {
         let first_node_id
             = self.machine.create_node();
 
@@ -555,6 +561,38 @@ impl<'a> CommandBuilderContext<'a> {
 
         let mut current_node_id
             = self.attach_options(first_node_id);
+
+        if !self.spec.paths.is_empty() {
+            let post_paths_node_id
+                = self.machine.create_node();
+
+            for path in &self.spec.paths {
+                let mut current_path_node_id
+                    = first_node_id;
+
+                for segment in path {
+                    let post_segment_node_id
+                        = self.machine.create_node();
+
+                    self.machine.register_static(
+                        current_path_node_id,
+                        Arg::User(segment.as_str()),
+                        post_segment_node_id,
+                        None,
+                    );
+
+                    current_path_node_id
+                        = self.attach_options(post_segment_node_id);
+                }
+
+                self.machine.register_shortcut(
+                    current_path_node_id,
+                    post_paths_node_id,
+                );
+            }
+
+            current_node_id = post_paths_node_id;
+        }
 
         let positionals
             = self.spec.components.iter()
@@ -572,7 +610,7 @@ impl<'a> CommandBuilderContext<'a> {
 
                     self.machine.register_static(
                         current_node_id,
-                        Arg::User(expected.to_string()),
+                        Arg::User(expected),
                         next_node_id,
                         Some(Reducer::IncreaseStaticCount),
                     );
@@ -622,10 +660,11 @@ impl CliBuilder {
     }
 
     pub fn compile(&self) -> Machine {
-        let command_machines = self.commands.iter()
-            .enumerate()
-            .map(|(command_id, command)| command.build(command_id))
-            .collect::<Vec<_>>();
+        let command_machines
+            = self.commands.iter()
+                .enumerate()
+                .map(|(command_id, command)| command.build(command_id))
+                .collect::<Vec<_>>();
 
         let mut machine
             = Machine::new_any_of(command_machines);
@@ -634,7 +673,7 @@ impl CliBuilder {
         machine
     }
 
-    pub fn run<'a>(&'a self, args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<(State, &'a CommandSpec), Error<'a>> {
+    pub fn run<'a>(&'a self, args: impl IntoIterator<Item = &'a str>) -> Result<(State<'a>, &'a CommandSpec), Error<'a>> {
         let machine
             = self.compile();
 
@@ -660,7 +699,7 @@ fn it_should_select_the_default_command_when_using_no_arguments() {
     });
 
     let (state, _context)
-        = cli_builder.run(&[""; 0]).unwrap();
+        = cli_builder.run([""; 0]).unwrap();
 
     assert_eq!(state.context_id, 0);
 }
@@ -679,7 +718,7 @@ fn it_should_select_the_default_command_when_using_mandatory_positional_argument
     });
 
     let (state, _context)
-        = cli_builder.run(&["foo", "bar"]).unwrap();
+        = cli_builder.run(["foo", "bar"]).unwrap();
 
     assert_eq!(state.context_id, 0);
 }
@@ -700,12 +739,12 @@ fn it_should_select_commands_by_their_path() {
     });
 
     let (state, _context)
-        = cli_builder.run(&["foo"]).unwrap();
+        = cli_builder.run(["foo"]).unwrap();
 
     assert_eq!(state.context_id, 0);
 
     let (state, _context)
-        = cli_builder.run(&["bar"]).unwrap();
+        = cli_builder.run(["bar"]).unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -726,7 +765,7 @@ fn it_should_favor_paths_over_mandatory_positional_arguments() {
     });
 
     let (state, _context)
-        = cli_builder.run(&["foo"]).unwrap();
+        = cli_builder.run(["foo"]).unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -746,11 +785,8 @@ fn it_should_favor_paths_over_optional_positional_arguments() {
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
     });
 
-    let machine
-        = cli_builder.compile();
-
     let (state, _context)
-        = cli_builder.run(&["foo"]).unwrap();
+        = cli_builder.run(["foo"]).unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -769,11 +805,11 @@ fn it_should_aggregate_positional_values() {
     });
 
     let (state, _context)
-        = cli_builder.run(&["foo", "bar"]).unwrap();
+        = cli_builder.run(["foo", "bar"]).unwrap();
 
     assert_eq!(state.values(), vec![
-        (0, vec!["foo".to_string()]),
-        (1, vec!["bar".to_string()]),
+        (0, vec!["foo"]),
+        (1, vec!["bar"]),
     ]);
 }
 
@@ -793,10 +829,10 @@ fn it_should_aggregate_positional_values_with_rest() {
     println!("{:?}", cli_builder.compile());
 
     let (state, _context)
-        = cli_builder.run(&["foo", "bar", "baz"]).unwrap();
+        = cli_builder.run(["foo", "bar", "baz"]).unwrap();
 
     assert_eq!(state.values(), vec![
-        (0, vec!["foo".to_string()]),
-        (1, vec!["bar".to_string(), "baz".to_string()]),
+        (0, vec!["foo"]),
+        (1, vec!["bar", "baz"]),
     ]);
 }

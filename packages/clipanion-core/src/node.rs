@@ -3,14 +3,14 @@ use std::collections::HashMap;
 use crate::{shared::Arg, transition::Transition};
 
 #[derive(Debug, Clone)]
-pub struct Node<TCheck, TReducer> {
+pub struct Node<'a, TCheck, TReducer> {
     pub context: usize,
     pub dynamics: Vec<(TCheck, Transition<TReducer>)>,
     pub shortcuts: Vec<Transition<TReducer>>,
-    pub statics: HashMap<Arg, Vec<Transition<TReducer>>>,
+    pub statics: HashMap<Arg<'a>, Vec<Transition<TReducer>>>,
 }
 
-impl<TCheck, TReducer> Node<TCheck, TReducer> {
+impl<'a, TCheck, TReducer> Node<'a, TCheck, TReducer> {
     pub fn new() -> Self {
         Self {
             context: 0,
@@ -21,13 +21,13 @@ impl<TCheck, TReducer> Node<TCheck, TReducer> {
     }
 }
 
-impl<TCheck, TReducer> Default for Node<TCheck, TReducer> {
+impl<'a, TCheck, TReducer> Default for Node<'a, TCheck, TReducer> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl <TCheck, TReducer> Node<TCheck, TReducer> {
+impl<'a, TCheck, TReducer> Node<'a, TCheck, TReducer> {
     pub fn clone_to_offset(&self, offset: usize) -> Self where TCheck: Clone, TReducer: Clone {
         let mut out = Node::new();
 

@@ -2,12 +2,12 @@ use std::{collections::HashSet, fmt::Debug};
 
 use crate::{node::Node, shared::{is_terminal_node, Arg, CUSTOM_NODE_ID, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, transition::Transition};
 
-pub struct Machine<TCheck, TReducer> {
+pub struct Machine<'a, TCheck, TReducer> {
     pub contexts: Vec<usize>,
-    pub nodes: Vec<Node<TCheck, TReducer>>,
+    pub nodes: Vec<Node<'a, TCheck, TReducer>>,
 }
 
-impl<TCheck: Debug, TReducer: Debug> Debug for Machine<TCheck, TReducer> {
+impl<'a, TCheck: Debug, TReducer: Debug> Debug for Machine<'a, TCheck, TReducer> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         for (id, node) in self.nodes.iter().enumerate() {
             writeln!(f, "Node {} ({}):", id, node.context)?;
@@ -37,7 +37,7 @@ impl<TCheck: Debug, TReducer: Debug> Debug for Machine<TCheck, TReducer> {
     }
 }
 
-impl<TCheck, TReducer> Machine<TCheck, TReducer> {
+impl<'a, TCheck, TReducer> Machine<'a, TCheck, TReducer> {
     pub fn new(context: usize) -> Self {
         let mut default = Self {
             contexts: vec![context],
@@ -55,7 +55,7 @@ impl<TCheck, TReducer> Machine<TCheck, TReducer> {
         self.inject_node(Node::new())
     }
 
-    pub fn inject_node(&mut self, node: Node<TCheck, TReducer>) -> usize {
+    pub fn inject_node(&mut self, node: Node<'a, TCheck, TReducer>) -> usize {
         self.nodes.push(node);
         self.nodes.len() - 1
     }
@@ -68,7 +68,7 @@ impl<TCheck, TReducer> Machine<TCheck, TReducer> {
         self.nodes[from].shortcuts.push(Transition::new(to, Default::default()));
     }
 
-    pub fn register_static(&mut self, from: usize, key: Arg, to: usize, reducer: TReducer) {
+    pub fn register_static(&mut self, from: usize, key: Arg<'a>, to: usize, reducer: TReducer) {
         self.nodes[from].statics.entry(key).or_default().push(Transition::new(to, reducer));
     }
 
@@ -119,7 +119,7 @@ impl<TCheck, TReducer> Machine<TCheck, TReducer> {
         id
     }
 
-    pub fn simplify_machine(&mut self) where TCheck: Debug + Clone + PartialEq, TReducer: Debug, Node<TCheck, TReducer>: Clone, Transition<TReducer>: Clone {
+    pub fn simplify_machine(&mut self) where TCheck: Debug + Clone + PartialEq, TReducer: Debug, Node<'a, TCheck, TReducer>: Clone, Transition<TReducer>: Clone {
         let mut visited
             = HashSet::new();
 

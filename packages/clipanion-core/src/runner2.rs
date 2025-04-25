@@ -20,12 +20,12 @@ impl<T, TState> ValidateTransition<TState> for Option<T> where T: ValidateTransi
     }
 }
 
-pub trait DeriveState<TState> {
-    fn derive(&self, state: &mut TState, target_id: usize, arg: &str) -> () where TState: RunnerState;
+pub trait DeriveState<'a, TState> {
+    fn derive(&self, state: &mut TState, target_id: usize, arg: &'a str) -> () where TState: RunnerState;
 }
 
-impl<T, TState> DeriveState<TState> for Option<T> where T: DeriveState<TState> {
-    fn derive(&self, state: &mut TState, target_id: usize, arg: &str) -> () where TState: RunnerState {
+impl<'a, T, TState> DeriveState<'a, TState> for Option<T> where T: DeriveState<'a, TState> {
+    fn derive(&self, state: &mut TState, target_id: usize, arg: &'a str) -> () where TState: RunnerState {
         if let Some(reducer) = self {
             reducer.derive(state, target_id, arg)
         }
@@ -34,20 +34,20 @@ impl<T, TState> DeriveState<TState> for Option<T> where T: DeriveState<TState> {
     }
 }
 
-pub struct Runner<'a, TCheck, TReducer, TState> {
+pub struct Runner<'a, 'b, TCheck, TReducer, TState> {
     states: Vec<TState>,
     next_states: Vec<TState>,
-    machine: &'a Machine<TCheck, TReducer>,
+    machine: &'a Machine<'b, TCheck, TReducer>,
 
     // Colors are used to avoid infinite loops.
     node_colors: Vec<usize>,
     current_color: usize,
 }
 
-impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
-    pub fn run<'b>(machine: &'a Machine<TCheck, TReducer>, args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Vec<TState>, ()> where TCheck: ValidateTransition<TState>, TReducer: DeriveState<TState> + Debug, TState: Clone + RunnerState, TState: Default + std::fmt::Debug {
+impl<'a, 'b, TCheck, TReducer, TState> Runner<'a, 'b, TCheck, TReducer, TState> {
+    pub fn run(machine: &'a Machine<'b, TCheck, TReducer>, args: impl IntoIterator<Item = &'b str>) -> Result<Vec<TState>, ()> where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'b, TState> + Debug, TState: Clone + RunnerState, TState: Default + std::fmt::Debug {
         let mut runner
-            = Runner::<'a, TCheck, TReducer, TState>::new(machine);
+            = Runner::<'a, 'b, TCheck, TReducer, TState>::new(machine);
 
         runner.update(Arg::StartOfInput);
 
@@ -59,14 +59,14 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
         }
 
         for arg in args.into_iter() {
-            runner.update(Arg::User(arg.as_ref().to_string()));
+            runner.update(Arg::User(arg.as_ref()));
         }
 
         runner.update(Arg::EndOfInput);
         runner.digest()
     }
 
-    pub fn new(machine: &'a Machine<TCheck, TReducer>) -> Self where TCheck: ValidateTransition<TState>, TReducer: DeriveState<TState> + Debug, TState: Clone + RunnerState + Debug + Default {
+    pub fn new(machine: &'a Machine<'b, TCheck, TReducer>) -> Self where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'b, TState> + Debug, TState: Clone + RunnerState + Debug + Default {
         let mut runner = Runner {
             states: vec![],
             next_states: vec![],
@@ -85,7 +85,7 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
                 .unwrap();
 
         for shortcut in &initial_node.shortcuts {
-            runner.transition_to(&initial_state, shortcut, &Arg::StartOfInput);
+            runner.transition_to(&initial_state, shortcut, Arg::StartOfInput);
         }
 
         std::mem::swap(
@@ -96,12 +96,12 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
         runner
     }
 
-    fn transition_to(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: &Arg) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<TState> + Debug, TState: Clone + RunnerState + Debug {
+    fn transition_to(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'b>) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'b, TState> + Debug, TState: Clone + RunnerState + Debug {
         self.current_color = self.current_color.wrapping_add(1);
         self.transition_to_color(from_state, transition, token, self.current_color);
     }
 
-    fn transition_to_color(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: &Arg, color: usize) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<TState> + Debug, TState: Clone + RunnerState + Debug {
+    fn transition_to_color(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'b>, color: usize) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'b, TState> + Debug, TState: Clone + RunnerState + Debug {
         let mut next_state
             = from_state.clone();
 
@@ -125,7 +125,7 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
         self.next_states.push(next_state);
     }
 
-    pub fn update(&mut self, token: Arg) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<TState> + Debug, TState: Clone + RunnerState + Debug {
+    pub fn update(&mut self, token: Arg<'b>) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'b, TState> + Debug, TState: Clone + RunnerState + Debug {
         let mut states
             = std::mem::take(&mut self.states);
 
@@ -142,7 +142,7 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
 
             if let Some(transitions) = transitions {
                 for transition in transitions {
-                    self.transition_to(state, transition, &token);
+                    self.transition_to(state, transition, token);
                     transitioned = true;
                 }
             }
@@ -150,7 +150,7 @@ impl<'a, TCheck, TReducer, TState> Runner<'a, TCheck, TReducer, TState> {
             if let Arg::User(raw) = &token {
                 for (check, transition) in &current_node.dynamics {
                     if check.check(state, raw) {
-                        self.transition_to(state, transition, &token);
+                        self.transition_to(state, transition, token);
                         transitioned = true;
                     }
                 }

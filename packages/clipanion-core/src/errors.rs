@@ -1,9 +1,26 @@
 use crate::builder2::CommandSpec;
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+pub struct CustomError {
+    message: String,
+}
+
+impl CustomError {
+    pub fn new(message: String) -> Self {
+        Self { message }
+    }
+}
+
+impl std::fmt::Display for CustomError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum CommandError {
-    #[error("The option `{0}` expects a value")]
-    Custom(String),
+    #[error("{0}")]
+    Custom(#[from] CustomError),
 
     #[error("Missing required option argument")]
     MissingOptionArguments,

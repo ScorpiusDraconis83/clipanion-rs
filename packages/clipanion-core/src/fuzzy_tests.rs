@@ -267,14 +267,14 @@ fn test_gen_random_command_line() {
                         .add_command(command_spec.clone());
 
                     let command_line_args
-                        = &command_line.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+                        = command_line.iter().map(|s| s.as_str()).collect::<Vec<_>>();
 
                     let (state, _command)
                         = cli_builder
                             .run(command_line_args)
                             .unwrap();
 
-                    assert_eq!(state.values(), command_values);
+                    assert_eq!(state.values_owned(), command_values);
                 });
 
                 if let Err(err) = result {

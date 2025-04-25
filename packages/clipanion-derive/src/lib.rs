@@ -87,10 +87,14 @@ impl OptionBag {
     fn parse_with_path(input: ParseStream) -> syn::Result<Self> {
         let path: LitStr = input.parse()?;
 
-        let path = path.value()
+        let mut path = path.value()
             .split(',')
             .map(|s| s.trim().to_string())
             .collect::<Vec<_>>();
+
+        path.sort_by(|a, b| {
+            a.len().cmp(&b.len())
+        });
 
         let mut attributes = AttributeBag::default();
         if input.peek(Token![,]) {
@@ -300,17 +304,29 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
         if let Some(mut option_bag) = cli_attributes.take_unique::<OptionBag>("option")? {
             let mut is_bool = false;
-            let mut arity = 1;
 
-            if let syn::Type::Path(type_path) = &internal_field_type {
+            let mut min_len = 1usize;
+            let mut extra_len = Some(0usize);
+
+            if let syn::Type::Path(type_path) = &field_type {
                 if &type_path.path.segments[0].ident == "bool" {
                     is_bool = true;
-                    arity = 0;
+
+                    min_len = 0;
+                    extra_len = Some(0);
                 }
             }
-    
+
             if let syn::Type::Tuple(tuple) = internal_field_type {
-                arity = tuple.elems.len();
+                let tuple_len = tuple.elems.len();
+
+                min_len = tuple_len;
+                extra_len = Some(0);
+            }
+
+            if is_vec_type {
+                min_len = 0;
+                extra_len = None;
             }
 
             let description = option_bag.attributes.take("help")
@@ -325,17 +341,24 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 .map(|lit| lit.value)
                 .unwrap_or(false);
 
-            let preferred_name_lit = option_bag.path.iter()
-                .max_by_key(|s| s.len())
+            let preferred_name_lit = option_bag.path
+                .first()
                 .map(to_lit_str)
                 .unwrap();
 
-            let name_set_lit = option_bag.path
+            let aliases_lit = option_bag.path
                 .iter()
+                .skip(1)
                 .map(to_lit_str)
                 .collect::<Vec<_>>();
 
-            let value_converter = if arity > 1 {
+            let min_len_lit = quote! {#min_len};
+            let extra_len_lit = match extra_len {
+                Some(extra_len) => quote! {Some(#extra_len)},
+                None => quote! {None},
+            };
+
+            let value_converter = if min_len > 1 {
                 quote! {values.iter().map(|s| s.parse().unwrap()).collect::<Result<Vec<_>, _>>()}
             } else if is_bool {
                 quote! {Result::<bool, std::convert::Infallible>::Ok(true)}
@@ -395,11 +418,14 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
             builder.push(quote! {
                 command_spec.components.push(clipanion::core::Component::Option(clipanion::core::OptionSpec {
-                    name_set: vec![#(#name_set_lit.to_string()),*],
+                    primary_name: #preferred_name_lit.to_string(),
+                    aliases: vec![#(#aliases_lit.to_string()),*],
                     description: #description.to_string(),
-                    required: #is_required,
-                    arity: #arity,
-                    ..Default::default()
+                    is_hidden: false,
+                    is_required: #is_required,
+                    allow_binding: false,
+                    min_len: #min_len_lit,
+                    extra_len: #extra_len_lit,
                 }));
             });
 
@@ -420,7 +446,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                         .collect::<Result<Vec<_>, _>>()
                         .map_err(|err| clipanion::details::HydrationError::new(err))?;
 
-                    partial.#field_ident.push(value);
+                    partial.#field_ident = value;
                 });
 
                 initialization_members.push(quote! {
@@ -444,7 +470,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                     positional_hydrater.push(quote! {
                         let positional = args.first().unwrap();
 
-                        let value = value.try_into()
+                        let value = positional.parse()
                             .map_err(|err| clipanion::details::HydrationError::new(err))?;
 
                         partial.#field_ident = Some(Some(value));
@@ -453,7 +479,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                     positional_hydrater.push(quote! {
                         let positional = args.first().unwrap();
 
-                        let value = positional.try_into()
+                        let value = positional.parse()
                             .map_err(|err| clipanion::details::HydrationError::new(err))?;
 
                         partial.#field_ident = Some(value);
@@ -517,18 +543,19 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 let mut partial
                     = Partial::default();
 
-                const FNS: &[fn(&mut Partial, &[&str])] = &[
-                    #(|value, args| {
+                let FNS: &[fn(&mut Partial, &[&str]) -> Result<(), clipanion::details::HydrationError>] = &[
+                    #(|partial, args| {
                         #positional_hydrater
+                        Ok(())
                     }),*
                 ];
     
                 for (index, args) in &state.option_values {
-                    FNS[*index](&mut partial, args);
+                    FNS[*index](&mut partial, args)?;
                 }
 
                 for (index, args) in &state.positional_values {
-                    FNS[*index](&mut partial, args);
+                    FNS[*index](&mut partial, args)?;
                 }
 
                 Ok(Self {

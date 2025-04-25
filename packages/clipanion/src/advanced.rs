@@ -16,7 +16,7 @@ use crate::{details::{CommandExecutor, CommandExecutorAsync, CommandProvider, Co
  }
  
 impl Environment {
-    pub fn with_argv(&self, argv: Vec<String>) -> Self {
+    pub fn with_argv(self, argv: Vec<String>) -> Self {
         Self {argv, ..self.clone()}
     }
 }
@@ -47,9 +47,9 @@ enum PrepareResult<'a> {
     Ready(State<'a>, &'a CommandSpec),
 }
 
-fn prepare_command<'a, S: CommandProvider>(builder: &'a clipanion_core::CliBuilder, env: &Environment) -> PrepareResult<'a> {
+fn prepare_command<'a, S: CommandProvider>(builder: &'a clipanion_core::CliBuilder, env: &'a Environment) -> PrepareResult<'a> {
     let parse_result
-        = builder.run(&env.argv);
+        = builder.run(env.argv.iter().map(|s| s.as_str()));
 
     let Ok((state, command)) = parse_result else {
         println!("{}", Formatter::<S>::format_parse_error(&env.info, &parse_result.unwrap_err()));

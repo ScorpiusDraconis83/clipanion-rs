@@ -12,10 +12,17 @@ pub mod details;
 pub mod prelude;
 
 #[macro_export]
-macro_rules! program_provider {
-    ($name:ident, [$($command:ty),* $(,)?]) => {
-        pub struct $name {}
+macro_rules! program_enum {
+    ($name:ident, [$($command:ident),* $(,)?]) => {
+        pub enum $name {
+            $($command($command),)*
+        }
+    }
+}
 
+#[macro_export]
+macro_rules! program_provider {
+    ($name:ident, [$($command:ident),* $(,)?]) => {
         impl $crate::details::CommandProvider for $name {
             fn command_usage(command_index: usize, opts: $crate::core::CommandUsageOptions) -> Result<$crate::core::CommandUsageResult, $crate::core::BuildError> {
                 use $crate::details::CommandController;
@@ -25,6 +32,31 @@ macro_rules! program_provider {
                 ];
 
                 FNS[command_index](opts)
+            }
+
+            fn parse_args<'a>(args: &'a [&'a str]) -> Result<$name, $crate::core::Error<'a>> {
+                let builder = Self::build_cli()
+                    .unwrap();
+
+                let (state, command_spec)
+                    = builder.run(args.iter().map(|s| *s))?;
+
+                const FNS: &[fn(&$crate::advanced::Environment, &$crate::core::State<'_>) -> Result<$name, $crate::core::CommandError>] = &[
+                    $(|environment, state| {
+                        use $crate::details::CommandController;
+
+                        let command
+                            = <$command>::hydrate_command_from_state(environment, state)?;
+
+                        Ok($name::$command(command))
+                    }),*
+                ];
+
+                let x
+                    = FNS[state.context_id](&env, &state)
+                        .map_err(|e| $crate::core::Error::CommandError(command_spec, e))?;
+
+                Ok(x)
             }
 
             fn build_cli() -> Result<$crate::core::CliBuilder, $crate::core::BuildError> {
@@ -43,7 +75,7 @@ macro_rules! program_provider {
 
 #[macro_export]
 macro_rules! program_executor {
-    ($name:ident, [$($command:ty),* $(,)?]) => {
+    ($name:ident, [$($command:ident),* $(,)?]) => {
         impl $crate::details::CommandExecutor for $name {
             fn execute_cli_state(environment: &$crate::advanced::Environment, state: $crate::core::State) -> $crate::details::CommandResult {
                 use $crate::details::CommandController;
@@ -79,7 +111,7 @@ macro_rules! program_executor {
         }
     };
 
-    ($name:ident, [$($command:ty),* $(,)?], async) => {
+    ($name:ident, [$($command:ident),* $(,)?], async) => {
         impl $crate::details::CommandExecutorAsync for $name {
             async fn execute_cli_state<'a>(environment: &$crate::advanced::Environment, state: $crate::core::State<'a>) -> $crate::details::CommandResult {
                 use $crate::details::CommandController;
@@ -118,7 +150,8 @@ macro_rules! program_executor {
 
 #[macro_export]
 macro_rules! program {
-    ($name:ident, [$($command:ty),* $(,)?]) => {
+    ($name:ident, [$($command:ident),* $(,)?]) => {
+        $crate::program_enum!($name, [$($command),*]);
         $crate::program_provider!($name, [$($command),*]);
         $crate::program_executor!($name, [$($command),*]);
     };
@@ -126,8 +159,19 @@ macro_rules! program {
 
 #[macro_export]
 macro_rules! program_async {
-    ($name:ident, [$($command:ty),* $(,)?]) => {
+    ($name:ident, [$($command:ident),* $(,)?]) => {
+        $crate::program_enum!($name, [$($command),*]);
         $crate::program_provider!($name, [$($command),*]);
         $crate::program_executor!($name, [$($command),*], async);
+    };
+}
+
+#[macro_export]
+macro_rules! test_program {
+    ($name:ident, [$($command:ty),* $(,)?]) => {
+        #[test]
+        fn it_works() {
+            $name::run(Environment::default().with_argv(vec!["foo".to_string()]));
+        }
     };
 }

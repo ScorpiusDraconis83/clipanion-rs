@@ -1,6 +1,6 @@
 use std::{fmt::Display, future::Future, iter::Peekable};
 
-use clipanion_core::CommandSpec;
+use clipanion_core::{CommandSpec, CustomError};
 
 use crate::advanced::Environment;
 
@@ -108,7 +108,7 @@ impl<T: Into<CommandResult>, E: Display> From<Result<T, E>> for CommandResult {
 pub trait CommandController {
     fn command_usage(opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
     fn command_spec() -> Result<CommandSpec, clipanion_core::BuildError>;
-    fn hydrate_command_from_state(environment: &Environment, state: &clipanion_core::State) -> Result<Self, HydrationError> where Self: Sized;
+    fn hydrate_command_from_state(environment: &Environment, state: &clipanion_core::State) -> Result<Self, CustomError> where Self: Sized;
 }
 
 /**
@@ -117,6 +117,7 @@ pub trait CommandController {
  */
 pub trait CommandProvider {
     fn command_usage(command_index: usize, opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
+    fn parse_args<'a>(args: &'a [&'a str]) -> Result<Self, clipanion_core::Error<'a>> where Self: Sized;
     fn build_cli() -> Result<clipanion_core::CliBuilder, clipanion_core::BuildError>;
 }
 
