@@ -130,7 +130,7 @@ impl YarnRunDefault {
         let mut argv = vec!["yarn".to_string(), "run".to_string(), self.script.clone()];
         argv.extend(self.args.clone());
 
-        MyCli::run(self.cli_environment.with_argv(argv))
+        MyCli::run(self.cli_environment.clone().with_argv(argv))
     }
 }
 

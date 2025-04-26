@@ -34,12 +34,9 @@ macro_rules! program_provider {
                 FNS[command_index](opts)
             }
 
-            fn parse_args<'a>(args: &'a [&'a str]) -> Result<$name, $crate::core::Error<'a>> {
-                let builder = Self::build_cli()
-                    .unwrap();
-
+            fn parse_args<'a, 'b>(builder: &'a $crate::core::CliBuilder, environment: &'b $crate::advanced::Environment) -> Result<$name, $crate::core::Error<'a>> {
                 let (state, command_spec)
-                    = builder.run(args.iter().map(|s| *s))?;
+                    = builder.run(environment.argv.iter().map(|s| s.as_str()))?;
 
                 const FNS: &[fn(&$crate::advanced::Environment, &$crate::core::State<'_>) -> Result<$name, $crate::core::CommandError>] = &[
                     $(|environment, state| {
@@ -52,11 +49,10 @@ macro_rules! program_provider {
                     }),*
                 ];
 
-                let x
-                    = FNS[state.context_id](&env, &state)
-                        .map_err(|e| $crate::core::Error::CommandError(command_spec, e))?;
+                let result = FNS[state.context_id](environment, &state)
+                    .map_err(|e| $crate::core::Error::CommandError(command_spec, e))?;
 
-                Ok(x)
+                Ok(result)
             }
 
             fn build_cli() -> Result<$crate::core::CliBuilder, $crate::core::BuildError> {

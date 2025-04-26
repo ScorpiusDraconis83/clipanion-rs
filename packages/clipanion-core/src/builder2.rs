@@ -47,11 +47,11 @@ impl<'a> State<'a> {
 }
 
 pub trait SelectBestState<'a> {
-    fn select_best_state(self) -> Result<State<'a>, Error<'a>>;
+    fn select_best_state<'b>(self) -> Result<State<'a>, Error<'b>>;
 }
 
 impl<'a> SelectBestState<'a> for Vec<State<'a>> {
-    fn select_best_state(self) -> Result<State<'a>, Error<'a>> {
+    fn select_best_state<'b>(self) -> Result<State<'a>, Error<'b>> {
         let mut all_states = self;
 
         let highest_keyword_count = all_states.iter()
@@ -673,7 +673,7 @@ impl CliBuilder {
         machine
     }
 
-    pub fn run<'a>(&'a self, args: impl IntoIterator<Item = &'a str>) -> Result<(State<'a>, &'a CommandSpec), Error<'a>> {
+    pub fn run<'a, 'b>(&'a self, args: impl IntoIterator<Item = &'b str>) -> Result<(State<'b>, &'a CommandSpec), Error<'a>> where 'a: 'b {
         let machine
             = self.compile();
 

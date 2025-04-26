@@ -359,15 +359,11 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
             };
 
             let value_converter = if min_len > 1 {
-                quote! {values.iter().map(|s| s.parse().unwrap()).collect::<Result<Vec<_>, _>>()}
+                quote! {values.iter().map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).collect::<Result<Vec<_>, _>>()?}
             } else if is_bool {
-                quote! {Result::<bool, std::convert::Infallible>::Ok(true)}
+                quote! {true}
             } else {
-                quote! {values.first().map(|s| s.parse()).transpose()}
-            };
-
-            let value_converter = quote! {
-                #value_converter.map_err(|err| clipanion::details::HydrationError::new(err))?
+                quote! {values.first().map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).transpose()?}
             };
 
             let default_value
@@ -442,9 +438,8 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
     
                 positional_hydrater.push(quote! {
                     let value = args.iter()
-                        .map(|arg| arg.parse())
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|err| clipanion::details::HydrationError::new(err))?;
+                        .map(|arg| arg.parse().map_err(clipanion::details::handle_parse_error))
+                        .collect::<Result<Vec<_>, _>>()?;
 
                     partial.#field_ident = value;
                 });
@@ -471,7 +466,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                         let positional = args.first().unwrap();
 
                         let value = positional.parse()
-                            .map_err(|err| clipanion::details::HydrationError::new(err))?;
+                            .map_err(clipanion::details::handle_parse_error)?;
 
                         partial.#field_ident = Some(Some(value));
                     });
@@ -480,7 +475,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                         let positional = args.first().unwrap();
 
                         let value = positional.parse()
-                            .map_err(|err| clipanion::details::HydrationError::new(err))?;
+                            .map_err(clipanion::details::handle_parse_error)?;
 
                         partial.#field_ident = Some(value);
                     });
@@ -534,7 +529,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 Ok(command_spec)
             }
 
-            fn hydrate_command_from_state(environment: &clipanion::advanced::Environment, state: &clipanion::core::State) -> Result<Self, clipanion::details::HydrationError> {
+            fn hydrate_command_from_state(environment: &clipanion::advanced::Environment, state: &clipanion::core::State) -> Result<Self, clipanion::core::CommandError> {
                 #[derive(Default, Debug)]
                 struct Partial {
                     #(#partial_struct_members)*
@@ -543,7 +538,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 let mut partial
                     = Partial::default();
 
-                let FNS: &[fn(&mut Partial, &[&str]) -> Result<(), clipanion::details::HydrationError>] = &[
+                let FNS: &[fn(&mut Partial, &[&str]) -> Result<(), clipanion::core::CustomError>] = &[
                     #(|partial, args| {
                         #positional_hydrater
                         Ok(())

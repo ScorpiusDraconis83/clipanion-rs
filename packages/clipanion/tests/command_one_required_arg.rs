@@ -1,8 +1,9 @@
 use clipanion::{advanced::Environment, details::CommandProvider, prelude::{Cli, *}, program};
 
-#[cli::command]
-#[cli::path("foo")]
-struct MyCommand {}
+#[cli::command(default)]
+struct MyCommand {
+    value: String,
+}
 
 impl MyCommand {
     fn execute(&self) {
@@ -19,7 +20,9 @@ fn it_works() {
     let result
         = MyCli::parse_args(&cli, &env).unwrap();
 
-    let MyCli::MyCommand(_) = result else {
+    let MyCli::MyCommand(command) = result else {
         panic!("expected MyCommand");
     };
+
+    assert_eq!(command.value, "foo");
 }

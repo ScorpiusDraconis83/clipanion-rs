@@ -1,24 +1,13 @@
-use std::{fmt::Display, future::Future, iter::Peekable};
+use std::{convert::Infallible, error::Error, future::Future, iter::Peekable};
 
-use clipanion_core::{CommandSpec, CustomError};
+use clipanion_core::{CommandError, CommandSpec, CustomError};
 
 use crate::advanced::Environment;
 
-/**
- * Internal error type that may be emitted during `hydrate_command_from_state`
- * if the command is unable to hydrate itself from the state (usually because
- * the `try_into` implementations failed to convert the input string into the
- * expected value type).
- */
-pub struct HydrationError {
-    pub message: String,
-}
-
-impl HydrationError {
-    pub fn new<T: Display>(source: T) -> Self {
-        Self {
-            message: source.to_string(),
-        }
+pub fn handle_parse_error<E: Error + 'static>(err: E) -> CustomError {
+    match std::any::TypeId::of::<E>() == std::any::TypeId::of::<Infallible>() {
+        true => unreachable!("Infallible error occurred"),
+        false => CustomError::new(err.to_string()),
     }
 }
 
@@ -42,11 +31,11 @@ impl From<()> for CommandResult {
     }
 }
 
-impl From<HydrationError> for CommandResult {
-    fn from(error: HydrationError) -> Self {
+impl From<CommandError> for CommandResult {
+    fn from(error: CommandError) -> Self {
         Self {
             exit_code: std::process::ExitCode::FAILURE,
-            error_message: Some(error.message),
+            error_message: Some(error.to_string()),
         }
     }
 }
@@ -84,7 +73,7 @@ impl<T: Into<CommandResult>> From<Result<T, anyhow::Error>> for CommandResult {
 }
 
 #[cfg(not(feature = "anyhow"))]
-impl<T: Into<CommandResult>, E: Display> From<Result<T, E>> for CommandResult {
+impl<T: Into<CommandResult>, E: std::fmt::Display> From<Result<T, E>> for CommandResult {
     fn from(value: Result<T, E>) -> Self {
         match value {
             Ok(value) => value.into(),
@@ -108,7 +97,7 @@ impl<T: Into<CommandResult>, E: Display> From<Result<T, E>> for CommandResult {
 pub trait CommandController {
     fn command_usage(opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
     fn command_spec() -> Result<CommandSpec, clipanion_core::BuildError>;
-    fn hydrate_command_from_state(environment: &Environment, state: &clipanion_core::State) -> Result<Self, CustomError> where Self: Sized;
+    fn hydrate_command_from_state(environment: &Environment, state: &clipanion_core::State) -> Result<Self, clipanion_core::CommandError> where Self: Sized;
 }
 
 /**
@@ -117,7 +106,7 @@ pub trait CommandController {
  */
 pub trait CommandProvider {
     fn command_usage(command_index: usize, opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
-    fn parse_args<'a>(args: &'a [&'a str]) -> Result<Self, clipanion_core::Error<'a>> where Self: Sized;
+    fn parse_args<'a, 'b>(builder: &'a clipanion_core::CliBuilder, environment: &'b Environment) -> Result<Self, clipanion_core::Error<'a>> where Self: Sized;
     fn build_cli() -> Result<clipanion_core::CliBuilder, clipanion_core::BuildError>;
 }
 

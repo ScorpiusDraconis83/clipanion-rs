@@ -1,15 +1,10 @@
-use clipanion::{advanced::Environment, prelude::{Cli, *}, program};
-
-static mut X: bool = false;
+use clipanion::{advanced::Environment, details::CommandProvider, prelude::{Cli, *}, program};
 
 #[cli::command(default)]
 struct MyCommand {}
 
 impl MyCommand {
     fn execute(&self) {
-        unsafe {
-            X = true;
-        }
     }
 }
 
@@ -17,6 +12,13 @@ program!(MyCli, [MyCommand]);
 
 #[test]
 fn it_works() {
-    MyCli::run(Environment::default().with_argv(vec![]));
-    assert!(unsafe { X });
+    let cli = MyCli::build_cli().unwrap();
+    let env = Environment::default().with_argv(vec![]);
+
+    let result
+        = MyCli::parse_args(&cli, &env).unwrap();
+
+    let MyCli::MyCommand(_) = result else {
+        panic!("expected MyCommand");
+    };
 }
