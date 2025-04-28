@@ -1,4 +1,4 @@
-use clipanion::{advanced::Environment, details::CommandProvider, prelude::*, program};
+use clipanion::{advanced::Environment, details::CommandProvider, prelude::*, program, test_cli_success};
 
 #[cli::command]
 #[cli::path("foo")]
@@ -11,15 +11,5 @@ impl MyCommand {
 
 program!(MyCli, [MyCommand]);
 
-#[test]
-fn it_works() {
-    let cli = MyCli::build_cli().unwrap();
-    let env = Environment::default().with_argv(vec!["foo".to_string()]);
-
-    let result
-        = MyCli::parse_args(&cli, &env).unwrap();
-
-    let MyCli::MyCommand(_) = result else {
-        panic!("expected MyCommand");
-    };
-}
+test_cli_success!(it_works, MyCli, MyCommand, &["foo"], |_| {
+});

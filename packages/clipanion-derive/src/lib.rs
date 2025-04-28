@@ -303,7 +303,9 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
         if let Some(mut option_bag) = cli_attributes.take_unique::<OptionBag>("option")? {
             let mut is_bool = false;
+            let mut is_tuple = false;
 
+            let mut item_count = 1usize;
             let mut min_len = 1usize;
             let mut extra_len = Some(0usize);
 
@@ -319,6 +321,9 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
             if let syn::Type::Tuple(tuple) = internal_field_type {
                 let tuple_len = tuple.elems.len();
 
+                is_tuple = true;
+
+                item_count = tuple_len;
                 min_len = tuple_len;
                 extra_len = Some(0);
             }
@@ -358,9 +363,36 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
             };
 
             let value_converter = if is_vec_type {
-                quote! {args.iter().map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).collect::<Result<Vec<_>, _>>()?}
+                if is_tuple {
+                    let mut tuple_fields = vec![];
+
+                    for field in 0..item_count {
+                        tuple_fields.push(quote! {
+                            args.get(#field).map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).transpose()?.unwrap()
+                        });
+                    }
+    
+                    quote! {
+                        args.chunks(#item_count).map(|chunk| {
+                            println!("{:?}", chunk);
+                            Ok((#(#tuple_fields),*))
+                        }).collect::<Result<Vec<_>, _>>()?
+                    }
+                } else {
+                    quote! {args.iter().map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).collect::<Result<Vec<_>, _>>()?}
+                }
             } else if is_bool {
                 quote! {Some(true)}
+            } else if is_tuple {
+                let mut tuple_fields = vec![];
+
+                for field in 0..item_count {
+                    tuple_fields.push(quote! {
+                        args.get(#field).map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).transpose()?.unwrap()
+                    });
+                }
+
+                quote! {Some((#(#tuple_fields),*))}
             } else {
                 quote! {args.first().map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).transpose()?}
             };
@@ -374,11 +406,11 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 });
 
                 hydraters.push(quote! {
-                    partial.#field_ident = #value_converter;
+                    partial.#field_ident.extend(#value_converter);
                 });
 
                 initialization_members.push(quote! {
-                    #field_ident: Vec::new(),
+                    #field_ident: partial.#field_ident,
                 });
             } else {
                 hydraters.push(quote! {
@@ -534,7 +566,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
             }
 
             fn hydrate_command_from_state(environment: &clipanion::advanced::Environment, state: &clipanion::core::State) -> Result<Self, clipanion::core::CommandError> {
-                #[derive(Default, Debug)]
+                #[derive(Default)]
                 struct Partial {
                     #(#partial_struct_members)*
                 }

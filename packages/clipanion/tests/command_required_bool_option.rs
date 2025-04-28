@@ -1,4 +1,4 @@
-use clipanion::{advanced::Environment, details::CommandProvider, prelude::*, program, test_cli_failure, test_cli_success};
+use clipanion::{advanced::Environment, details::{CommandController, CommandProvider}, prelude::*, program, test_cli_failure, test_cli_success};
 use clipanion_core::{CommandError, Error};
 
 #[cli::command(default)]
@@ -19,10 +19,5 @@ test_cli_success!(it_works, MyCli, MyCommand, &["--my-option"], |command| {
 });
 
 test_cli_failure!(it_requires_the_option_to_be_present, MyCli, MyCommand, &[], |error| {
-    let command_error = match error {
-        Error::CommandError(_, command_error) => command_error,
-        _ => panic!("expected command error"),
-    };
-
-    assert_eq!(command_error, CommandError::MissingOptionArguments("--my-option".to_string()));
+    assert_eq!(error, Error::CommandError(&MyCommand::command_spec().unwrap(), CommandError::MissingOptionArguments("--my-option".to_string())));
 });

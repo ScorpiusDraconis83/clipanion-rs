@@ -1,10 +1,10 @@
-use std::{convert::Infallible, error::Error, future::Future, iter::Peekable};
+use std::{convert::Infallible, fmt::Display, future::Future, iter::Peekable};
 
 use clipanion_core::{CommandError, CommandSpec, CustomError};
 
 use crate::advanced::Environment;
 
-pub fn handle_parse_error<E: Error + 'static>(err: E) -> CustomError {
+pub fn handle_parse_error<E: Display + 'static>(err: E) -> CustomError {
     match std::any::TypeId::of::<E>() == std::any::TypeId::of::<Infallible>() {
         true => unreachable!("Infallible error occurred"),
         false => CustomError::new(err.to_string()),

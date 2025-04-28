@@ -1,4 +1,4 @@
-use clipanion::{advanced::Environment, details::CommandProvider, prelude::*, program};
+use clipanion::{advanced::Environment, details::CommandProvider, prelude::*, program, test_cli_success};
 
 #[cli::command]
 #[cli::path("foo", "bar")]
@@ -14,47 +14,14 @@ impl MyCommand {
 
 program!(MyCli, [MyCommand]);
 
-#[test]
-fn it_works() {
-    let cli = MyCli::build_cli().unwrap();
-    let env = Environment::default().with_argv(vec!["foo".to_string(), "bar".to_string(), "--my-option".to_string()]);
-
-    let result
-        = MyCli::parse_args(&cli, &env).unwrap();
-
-    let MyCli::MyCommand(command) = result else {
-        panic!("expected MyCommand");
-    };
-
+test_cli_success!(it_works, MyCli, MyCommand, &["foo", "bar", "--my-option"], |command| {
     assert_eq!(command.my_option, Some(true));
-}
+});
 
-#[test]
-fn it_works_if_the_option_is_first() {
-    let cli = MyCli::build_cli().unwrap();
-    let env = Environment::default().with_argv(vec!["--my-option".to_string(), "foo".to_string(), "bar".to_string()]);
-
-    let result
-        = MyCli::parse_args(&cli, &env).unwrap();
-
-    let MyCli::MyCommand(command) = result else {
-        panic!("expected MyCommand");
-    };
-
+test_cli_success!(it_works_if_the_option_is_first, MyCli, MyCommand, &["--my-option", "foo", "bar"], |command| {
     assert_eq!(command.my_option, Some(true));
-}
+});
 
-#[test]
-fn it_works_if_the_option_is_between_the_path_segments() {
-    let cli = MyCli::build_cli().unwrap();
-    let env = Environment::default().with_argv(vec!["foo".to_string(), "--my-option".to_string(), "bar".to_string()]);
-
-    let result
-        = MyCli::parse_args(&cli, &env).unwrap();
-
-    let MyCli::MyCommand(command) = result else {
-        panic!("expected MyCommand");
-    };
-
+test_cli_success!(it_works_if_the_option_is_between_the_path_segments, MyCli, MyCommand, &["foo", "--my-option", "bar"], |command| {
     assert_eq!(command.my_option, Some(true));
-}
+});
