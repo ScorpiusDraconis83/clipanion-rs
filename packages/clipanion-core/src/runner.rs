@@ -1,312 +1,195 @@
-use std::collections::HashSet;
+use std::fmt::Debug;
 
-use crate::{actions::{apply_check, apply_reducer, Reducer}, builder::{Machine, MachineContext}, errors::Error, shared::{Arg, ERROR_NODE_ID, HELP_COMMAND_INDEX, INITIAL_NODE_ID}};
+use crate::{shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID}, transition::Transition, Machine};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Token {
-    Path {
-        segment_index: usize,
-    },
+pub trait RunnerState {
+    fn get_context_id(&self) -> usize;
+    fn set_context_id(&mut self, context_id: usize);
 
-    Positional {
-        segment_index: usize,
-    },
-
-    Option {
-        segment_index: usize,
-        slice: Option<(usize, usize)>,
-        option: String,
-    },
-
-    Assign {
-        segment_index: usize,
-        slice: (usize, usize),
-    },
-
-    Value {
-        segment_index: usize,
-        slice: Option<(usize, usize)>,
-    },
+    fn get_node_id(&self) -> usize;
+    fn set_node_id(&mut self, node_id: usize);
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum OptionValue {
-    None,
-    Array(Vec<String>),
-    Bool(bool),
-    String(String),
+pub trait ValidateTransition<TState> {
+    fn check(&self, state: &TState, arg: &str) -> bool;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Positional {
-    Required(String),
-    Optional(String),
-    Rest(String),
-}
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct RunState {
-    pub candidate_index: usize,
-    pub required_options: Vec<String>,
-    pub error_message: Option<Error>,
-    pub ignore_options: bool,
-    pub is_help: bool,
-    pub options: Vec<(String, OptionValue)>,
-    pub path: Vec<String>,
-    pub positionals: Vec<Positional>,
-    pub remainder: Option<String>,
-    pub selected_index: Option<usize>,
-    pub tokens: Vec<Token>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RunBranch {
-    node_id: usize,
-    state: RunState,
-}
-
-impl RunBranch {
-    pub fn apply_transition(&self, transition: &crate::transition::Transition<Reducer>, context: &MachineContext, segment: &Arg, segment_index: usize) -> RunBranch {
-        RunBranch {
-            node_id: transition.to,
-            state: apply_reducer(&transition.reducer, context, &self.state, segment, segment_index),
-        }
+impl<T, TState> ValidateTransition<TState> for Option<T> where T: ValidateTransition<TState> {
+    fn check(&self, state: &TState, arg: &str) -> bool {
+        self.as_ref().map_or(true, |reducer| reducer.check(state, arg))
     }
 }
 
-fn trim_smaller_branches(branches: &mut Vec<RunBranch>) {
-    let max_path_size = branches.iter()
-        .map(|b| b.state.path.len())
-        .max()
-        .unwrap();
-
-    branches.retain(|b| b.state.path.len() == max_path_size);
+pub trait DeriveState<'a, TState> {
+    fn derive(&self, state: &mut TState, target_id: usize, arg: &'a str) -> () where TState: RunnerState;
 }
 
-fn select_best_state(_input: &[String], mut states: Vec<RunState>) -> Result<RunState, Error> {
-    states.retain(|s| {
-        s.selected_index.is_some()
-    });
-
-    if states.is_empty() {
-        panic!("No terminal states found");
-    }
-
-    states.retain(|s| {
-        s.selected_index == Some(HELP_COMMAND_INDEX) || s.required_options.iter().all(|o| s.options.iter().any(|(name, _)| name == o))
-    });
-
-    if states.is_empty() {
-        return Err(Error::InternalError);
-    }
-
-    let max_path_size = states.iter()
-        .map(|s| s.path.len())
-        .max()
-        .unwrap();
-
-    states.retain(|s| {
-        s.path.len() == max_path_size
-    });
-
-    fn get_fill_score(state: &RunState) -> usize {
-        let option_scope = state.options.len();
-
-        let positional_score = state.positionals.iter()
-            .filter(|mode| matches!(mode, Positional::Required(_)))
-            .count();
-
-        option_scope + positional_score
-    }
-
-    let best_fill_score = states.iter()
-        .map(get_fill_score)
-        .max()
-        .unwrap();
-
-    states.retain(|s| {
-        get_fill_score(s) == best_fill_score
-    });
-
-    let mut aggregated_states
-        = aggregate_help_states(states.into_iter());
-
-    if aggregated_states.len() > 1 {
-        let candidate_commands = aggregated_states.iter()
-            .map(|s| s.selected_index.unwrap())
-            .collect::<Vec<_>>();
-
-        return Err(Error::AmbiguousSyntax(candidate_commands));
-    }
-
-    Ok(std::mem::take(aggregated_states.first_mut().unwrap()))
-}
-
-fn find_common_prefix<'t, I>(mut it: I) -> Vec<String> where I: Iterator<Item = &'t Vec<String>> {
-    let mut common_prefix
-        = it.next().unwrap().clone();
-
-    for path in it {
-        if path.len() < common_prefix.len() {
-            common_prefix.resize(path.len(), Default::default());
+impl<'a, T, TState> DeriveState<'a, TState> for Option<T> where T: DeriveState<'a, TState> {
+    fn derive(&self, state: &mut TState, target_id: usize, arg: &'a str) -> () where TState: RunnerState {
+        if let Some(reducer) = self {
+            reducer.derive(state, target_id, arg)
         }
 
-        let diff = common_prefix.iter()
-            .zip(path.iter())
-            .position(|(a, b)| a != b);
-
-        if let Some(diff) = diff {
-            common_prefix.resize(diff, Default::default());
-        }
+        state.set_node_id(target_id);
     }
-
-    common_prefix
 }
 
-fn aggregate_help_states<I>(it: I) -> Vec<RunState> where I: Iterator<Item = RunState> {
-    let (helps, mut not_helps)
-        = it.partition::<Vec<_>, _>(|s| s.selected_index == Some(HELP_COMMAND_INDEX));
+pub struct Runner<'machine, 'cmds, TCheck, TReducer, TState> {
+    machine: &'machine Machine<'cmds, TCheck, TReducer>,
 
-    if !helps.is_empty() {
-        let options = helps.iter()
-            .flat_map(|s| s.options.iter())
-            .cloned()
-            .collect();
+    states: Vec<TState>,
+    next_states: Vec<TState>,
 
-        not_helps.push(RunState {
-            selected_index: Some(HELP_COMMAND_INDEX),
-            path: find_common_prefix(helps.iter().map(|s| &s.path)),
-            options,
-            ..Default::default()
+    // Colors are used to avoid infinite loops.
+    node_colors: Vec<usize>,
+    current_color: usize,
+}
+
+impl<'machine, 'cmds, TCheck, TReducer, TState> Runner<'machine, 'cmds, TCheck, TReducer, TState> {
+    pub fn run<'args>(machine: &'machine Machine<'cmds, TCheck, TReducer>, args: &[&'args str]) -> Result<Vec<TState>, ()>
+    where
+        TCheck: ValidateTransition<TState>,
+        TReducer: DeriveState<'args, TState> + Debug,
+        TState: Clone + RunnerState,
+        TState: Default + std::fmt::Debug
+    {
+        let mut runner
+            = Runner::<'machine, 'cmds, TCheck, TReducer, TState>::new(machine);
+
+        runner.update(Arg::StartOfInput);
+
+        for state in runner.states.iter_mut() {
+            let node
+                = &runner.machine.nodes[state.get_node_id()];
+
+            state.set_context_id(node.context);
+        }
+
+        for arg in args {
+            runner.update(Arg::User(arg));
+        }
+
+        runner.update(Arg::EndOfInput);
+        runner.digest()
+    }
+
+    pub fn new<'args>(machine: &'machine Machine<'cmds, TCheck, TReducer>) -> Self
+    where
+        TCheck: ValidateTransition<TState>,
+        TReducer: DeriveState<'args, TState> + Debug,
+        TState: Clone + RunnerState + Debug + Default
+    {
+        let mut runner = Runner {
+            states: vec![],
+            next_states: vec![],
+            machine,
+            node_colors: vec![0; machine.nodes.len()],
+            current_color: 0,
+        };
+
+        let initial_state
+            = TState::default();
+
+        runner.next_states.push(initial_state.clone());
+
+        let initial_node
+            = runner.machine.nodes.get(INITIAL_NODE_ID)
+                .unwrap();
+
+        for shortcut in &initial_node.shortcuts {
+            runner.transition_to(&initial_state, shortcut, Arg::StartOfInput);
+        }
+
+        std::mem::swap(
+            &mut runner.states,
+            &mut runner.next_states,
+        );
+
+        runner
+    }
+
+    fn transition_to<'args>(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'args>) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'args, TState> + Debug, TState: Clone + RunnerState + Debug {
+        self.current_color = self.current_color.wrapping_add(1);
+        self.transition_to_color(from_state, transition, token, self.current_color);
+    }
+
+    fn transition_to_color<'args>(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'args>, color: usize) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'args, TState> + Debug, TState: Clone + RunnerState + Debug {
+        let mut next_state
+            = from_state.clone();
+
+        if let Arg::User(raw) = token {
+            transition.reducer.derive(&mut next_state, transition.to, &raw);
+        } else {
+            next_state.set_node_id(transition.to);
+        }
+
+        self.node_colors[transition.to] = color;
+
+        let target_node
+            = &self.machine.nodes[transition.to];
+
+        for shortcut in &target_node.shortcuts {
+            if self.node_colors[shortcut.to] != color {
+                self.transition_to_color(&next_state, shortcut, token, color);
+            }
+        }
+
+        self.next_states.push(next_state);
+    }
+
+    pub fn update<'args>(&mut self, token: Arg<'args>) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'args, TState> + Debug, TState: Clone + RunnerState + Debug {
+        let mut states
+            = std::mem::take(&mut self.states);
+
+        for state in &states {
+            let current_node
+                = self.machine.nodes.get(state.get_node_id())
+                    .unwrap();
+
+            let transitions
+                = current_node.statics.get(&token);
+
+            let mut transitioned
+                = false;
+
+            if let Some(transitions) = transitions {
+                for transition in transitions {
+                    self.transition_to(state, transition, token);
+                    transitioned = true;
+                }
+            }
+
+            if let Arg::User(raw) = &token {
+                for (check, transition) in &current_node.dynamics {
+                    if check.check(state, raw) {
+                        self.transition_to(state, transition, token);
+                        transitioned = true;
+                    }
+                }
+            }
+
+            if !transitioned {
+                let mut next_state = state.clone();
+                next_state.set_node_id(ERROR_NODE_ID);
+                self.next_states.push(next_state);
+            }
+        }
+
+        self.next_states.retain(|state| {
+            state.get_node_id() != ERROR_NODE_ID
         });
+
+        if self.next_states.is_empty() {
+            println!("no next states due to {:?}", token);
+        }
+
+        std::mem::swap(&mut self.states, &mut states);
+        std::mem::swap(&mut self.states, &mut self.next_states);
+
+        self.next_states.clear();
     }
 
-    not_helps
-}
-
-fn extract_error_from_branches(_input: &[String], mut branches: Vec<RunBranch>, is_next: bool) -> Error {
-    if is_next {
-        if let Some(lead) = branches.pop() {
-            if let Some(Error::CommandError(usize, command_error)) = lead.state.error_message {
-                if branches.iter().all(|b| match &b.state.error_message {
-                    Some(Error::CommandError(_, other_error)) => other_error == &command_error,
-                    _ => false,
-                }) {
-                    return Error::CommandError(usize, command_error);
-                }
-            }
-        }
+    pub fn digest(self) -> Result<Vec<TState>, ()> {
+        Ok(self.states)
     }
-
-    let candidate_indices = branches.iter()
-        .filter(|b| b.node_id != ERROR_NODE_ID)
-        .map(|b| b.state.candidate_index)
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
-
-    Error::NotFound(candidate_indices)
-}
-
-fn run_machine_internal(machine: &Machine, input: &[String], partial: bool) -> Result<Vec<RunBranch>, Error> {
-    let mut args = vec![Arg::StartOfInput];
-
-    args.extend(input.iter().map(|s| {
-        Arg::User(s.to_string())
-    }));
-
-    args.push(match partial {
-        true => Arg::EndOfPartialInput,
-        false => Arg::EndOfInput,
-    });
-
-    let mut branches = vec![RunBranch {
-        node_id: INITIAL_NODE_ID,
-        state: RunState::default(),
-    }];
-
-    for (t, arg) in args.iter().enumerate() {
-        let is_eoi = arg == &Arg::EndOfInput || arg == &Arg::EndOfPartialInput;
-        let mut next_branches = vec![];
-
-        for branch in &branches {
-            if branch.node_id == ERROR_NODE_ID {
-                next_branches.push(branch.clone());
-                continue;
-            }
-
-            let node = &machine.nodes[branch.node_id];
-            let context = &machine.contexts[node.context];
-
-            let has_exact_match = node.statics.contains_key(arg);
-            if !partial || t < args.len() - 1 || has_exact_match {
-                if has_exact_match {
-                    for transition in &node.statics[arg] {
-                        next_branches.push(branch.apply_transition(transition, context, arg, t.wrapping_sub(1)));
-                    }
-                }
-            } else {
-                for candidate in machine.nodes[branch.node_id].statics.keys() {
-                    if !candidate.starts_with(arg) {
-                        continue;
-                    }
-
-                    for transition in &node.statics[candidate] {
-                        next_branches.push(branch.apply_transition(transition, context, arg, t - 1));
-                    }
-                }
-            }
-
-            if !is_eoi {
-                for (check, transition) in &node.dynamics {
-                    if apply_check(check, context, &branch.state, arg, t - 1) {
-                        next_branches.push(branch.apply_transition(transition, context, arg, t - 1));
-                    }
-                }
-            }
-        }
-
-        if next_branches.is_empty() && is_eoi && input.len() == 1 {
-            return Ok(vec![RunBranch {
-                node_id: INITIAL_NODE_ID,
-                state: RunState {
-                    selected_index: Some(HELP_COMMAND_INDEX),
-                    ..RunState::default()
-                },
-            }]);
-        }
-
-        if next_branches.is_empty() {
-            return Err(extract_error_from_branches(input, branches, false));
-        }
-
-        if next_branches.iter().all(|b| b.node_id == ERROR_NODE_ID) {
-            return Err(extract_error_from_branches(input, next_branches, true));
-        }
-
-        branches = next_branches;
-        trim_smaller_branches(&mut branches);
-    }
-
-    Ok(branches)
-}
-
-pub fn run_machine(machine: &Machine, input: &[String]) -> Result<RunState, Error> {
-    let branches = run_machine_internal(machine, input, false)?;
-
-    let states = branches.into_iter()
-        .map(|b| b.state)
-        .collect();
-
-    select_best_state(input, states)
-}
-
-pub fn run_partial_machine(machine: &Machine, input: &[String]) -> Result<RunState, Error> {
-    let branches = run_machine_internal(machine, input, true)?;
-
-    let states = branches.into_iter()
-        .map(|b| b.state)
-        .collect();
-
-    select_best_state(input, states)
 }

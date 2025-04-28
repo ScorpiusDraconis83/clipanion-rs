@@ -1,5 +1,4 @@
-use clipanion::{advanced::Environment, details::{CommandController, CommandProvider}, prelude::*, program, test_cli_failure, test_cli_success};
-use clipanion_core::{CommandError, Error};
+use clipanion::{prelude::*, program, test_cli_failure, test_cli_success, CommandError, Error};
 
 #[cli::command(default)]
 struct MyCommand {

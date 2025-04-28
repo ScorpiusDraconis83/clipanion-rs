@@ -1,13 +1,13 @@
 use std::{convert::Infallible, fmt::Display, future::Future, iter::Peekable};
 
-use clipanion_core::{CommandError, CommandSpec, CustomError};
+use clipanion_core::{CommandError, CommandSpec};
 
 use crate::advanced::Environment;
 
-pub fn handle_parse_error<E: Display + 'static>(err: E) -> CustomError {
+pub fn handle_parse_error<E: Display + 'static>(err: E) -> CommandError {
     match std::any::TypeId::of::<E>() == std::any::TypeId::of::<Infallible>() {
         true => unreachable!("Infallible error occurred"),
-        false => CustomError::new(err.to_string()),
+        false => CommandError::Custom(err.to_string()),
     }
 }
 
@@ -106,16 +106,16 @@ pub trait CommandController {
  */
 pub trait CommandProvider {
     fn command_usage(command_index: usize, opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
-    fn parse_args<'cmds>(builder: &clipanion_core::CliBuilder<'cmds>, environment: &Environment) -> Result<Self, clipanion_core::Error<'cmds>> where Self: Sized;
+    fn parse_args(builder: &clipanion_core::CliBuilder<'static>, environment: &Environment) -> Result<Self, clipanion_core::Error<'static>> where Self: Sized;
     fn build_cli() -> Result<clipanion_core::CliBuilder<'static>, clipanion_core::BuildError>;
 }
 
 pub trait CommandExecutor {
-    fn execute_cli_state<'a>(env: &Environment, state: clipanion_core::State<'a>) -> crate::details::CommandResult;
+    fn execute_cli_state<'args>(env: &Environment, state: clipanion_core::State<'args>) -> crate::details::CommandResult;
 }
 
 pub trait CommandExecutorAsync {
-    fn execute_cli_state<'a>(env: &Environment, state: clipanion_core::State<'a>) -> impl Future<Output = crate::details::CommandResult>;
+    fn execute_cli_state<'args>(env: &Environment, state: clipanion_core::State<'args>) -> impl Future<Output = crate::details::CommandResult>;
 }
 
 pub fn cautious_take_if<T: Iterator>(it: &mut Peekable<T>, check: impl FnOnce(&T::Item) -> bool) -> Option<T::Item> {

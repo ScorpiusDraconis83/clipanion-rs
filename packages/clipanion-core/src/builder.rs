@@ -1,456 +1,898 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{fmt::Display, iter::once};
 
-use crate::{actions::{Check, Reducer}, errors::BuildError, machine, node::Node, shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandError};
+use itertools::Itertools;
 
-pub type Machine
-    = machine::Machine<Check, Reducer>;
+use crate::{machine, runner::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageResult, Error};
 
-#[derive(Debug, Default)]
-pub struct MachineContext {
-    pub preferred_names: HashMap<String, String>,
-    pub valid_bindings: HashSet<String>,
+/**
+ */
+#[derive(Debug, Clone)]
+pub enum BuiltinCommand<'cmds> {
+    Help(Option<&'cmds CommandSpec>),
 }
 
-pub struct CliBuilder {
-    pub commands: Vec<CommandBuilder>,
+/**
+ * Represents the parse result of the CLI command.
+ */
+#[derive(Debug, Clone)]
+pub enum ParseResult<'cmds, 'args> {
+    Builtin(BuiltinCommand<'cmds>),
+    Ready(State<'args>, &'cmds CommandSpec),
 }
 
-impl Default for CliBuilder {
-    fn default() -> Self {
-        Self::new()
+#[derive(Debug, Clone)]
+pub struct Info {
+    pub program_name: String,
+    pub binary_name: String,
+    pub version: String,
+    pub about: String,
+    pub colorized: bool,
+}
+
+#[derive(Debug)]
+pub struct Context {
+    _command_id: usize,
+    _command_spec: CommandSpec,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct State<'args> {
+    pub context_id: usize,
+    pub node_id: usize,
+    pub keyword_count: usize,
+    pub path: Vec<&'args str>,
+    pub positional_values: Vec<(usize, Vec<&'args str>)>,
+    pub option_values: Vec<(usize, Vec<&'args str>)>,
+}
+
+impl<'args> State<'args> {
+    pub fn values(&self) -> Vec<(usize, Vec<&'args str>)> {
+        self.positional_values.clone()
+            .into_iter()
+            .chain(self.option_values.clone().into_iter())
+            .sorted_by_key(|(id, _)| *id)
+            .collect()
+    }
+
+    pub fn values_owned(self) -> Vec<(usize, Vec<String>)> {
+        self.values()
+            .into_iter()
+            .map(|(id, values)| (id, values.into_iter().map(|s| s.to_string()).collect()))
+            .collect()
     }
 }
 
-impl CliBuilder {
-    pub fn new() -> CliBuilder {
+pub trait SelectBestState<'args> {
+    fn select_best_state<'cmds>(self, commands: &Vec<&'cmds CommandSpec>) -> Result<State<'args>, Error<'cmds>>;
+}
+
+impl<'args> SelectBestState<'args> for Vec<State<'args>> {
+    fn select_best_state<'cmds>(self, _commands: &Vec<&'cmds CommandSpec>) -> Result<State<'args>, Error<'cmds>> {
+        let mut all_states = self;
+
+        let highest_keyword_count = all_states.iter()
+            .map(|state| state.keyword_count)
+            .max();
+
+        let Some(highest_keyword_count) = highest_keyword_count else {
+            return Err(Error::NotFound(vec![]));
+        };
+
+        all_states.retain(|state| {
+            state.keyword_count == highest_keyword_count
+        });
+
+        let state
+            = all_states.pop()
+                .ok_or(Error::NotFound(vec![]))?;
+
+        Ok(state)
+    }
+}
+
+impl<'args> RunnerState for State<'args> {
+    fn get_context_id(&self) -> usize {
+        self.context_id
+    }
+
+    fn set_context_id(&mut self, context_id: usize) {
+        self.context_id = context_id;
+    }
+
+    fn get_node_id(&self) -> usize {
+        self.node_id
+    }
+
+    fn set_node_id(&mut self, node_id: usize) {
+        self.node_id = node_id;
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Check {
+    IsOptionLike,
+    IsNotOptionLike,
+}
+
+impl<'args> ValidateTransition<State<'args>> for Check {
+    fn check(&self, _state: &State<'args>, arg: &str) -> bool {
+        match self {
+            Check::IsOptionLike => {
+                arg.starts_with("-")
+            },
+            
+            Check::IsNotOptionLike => {
+                !arg.starts_with("-")
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Attachment {
+    Option,
+    Positional,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reducer {
+    IncreaseStaticCount,
+    StartValue(Attachment, usize),
+    PushValue(Attachment),
+}
+
+impl<'args> DeriveState<'args, State<'args>> for Reducer {
+    fn derive(&self, state: &mut State<'args>, _target_id: usize, token: &'args str) -> () {
+        match self {
+            Reducer::IncreaseStaticCount => {
+                state.keyword_count += 1;
+            },
+
+            Reducer::StartValue(attachment, positional_id) => {
+                match attachment {
+                    Attachment::Option => {
+                        state.option_values.push((*positional_id, vec![]));
+                    },
+
+                    Attachment::Positional => {
+                        state.positional_values.push((*positional_id, vec![token]));
+                    },
+                }
+            },
+
+            Reducer::PushValue(attachment) => {
+                match attachment {
+                    Attachment::Option => {
+                        if let Some((_, ref mut values)) = state.option_values.last_mut() {
+                            values.push(token);
+                        }
+                    },
+
+                    Attachment::Positional => {
+                        if let Some((_, ref mut values)) = state.positional_values.last_mut() {
+                            values.push(token);
+                        }
+                    },
+                }
+            },
+        }
+    }
+}
+
+type Machine<'cmds>
+    = machine::Machine<'cmds, Option<Check>, Option<Reducer>>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PositionalSpec {
+    Keyword {
+        expected: String,
+    },
+
+    Dynamic {
+        name: String,
+        description: String,
+
+        min_len: usize,
+        extra_len: Option<usize>,
+    },
+}
+
+fn format_range(f: &mut std::fmt::Formatter<'_>, name: &str, min_len: usize, extra_len: Option<usize>) -> std::fmt::Result {
+    if min_len > 0 {
+        write!(f, "<{}>", name)?;
+
+        for i in 1..min_len {
+            write!(f, " <{}{}>", name, i + 1)?;
+        }
+    }
+
+    let spacing
+        = if min_len > 0 {" "} else {""};
+
+    if extra_len != Some(0) {
+        if let Some(extra_len) = extra_len {
+            write!(f, "{}[…{}{}]", spacing, name, extra_len)?;
+        } else {
+            write!(f, "{}[…{}N]", spacing, name)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn format_collection<T: Display>(f: &mut std::fmt::Formatter<'_>, components: impl IntoIterator<Item = T>, separator: &str) -> std::fmt::Result {
+    let mut first = true;
+
+    for component in components {
+        if !first {
+            write!(f, "{}", separator)?;
+        }
+
+        write!(f, "{}", component)?;
+        first = false;
+    }
+
+    Ok(())
+}
+
+impl std::fmt::Display for PositionalSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PositionalSpec::Keyword {expected} => {
+                write!(f, "{}", expected)
+            },
+
+            PositionalSpec::Dynamic {name, min_len, extra_len, ..} => {
+                format_range(f, name, *min_len, *extra_len)
+            },
+        }
+    }
+}
+
+impl PositionalSpec {
+    pub fn keyword<T: Into<String>>(value: T) -> Self {
+        PositionalSpec::Keyword {
+            expected: value.into(),
+        }
+    }
+
+    pub fn optional() -> Self {
+        PositionalSpec::Dynamic {
+            name: "".to_string(),
+            description: "".to_string(),
+
+            min_len: 0,
+            extra_len: Some(1),
+        }
+    }
+
+    pub fn required() -> Self {
+        PositionalSpec::Dynamic {
+            name: "".to_string(),
+            description: "".to_string(),
+            
+            min_len: 1,
+            extra_len: Some(0),
+        }
+    }
+
+    pub fn rest() -> Self {
+        PositionalSpec::Dynamic {
+            name: "".to_string(),
+            description: "".to_string(),
+
+            min_len: 0,
+            extra_len: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OptionSpec {
+    pub primary_name: String,
+    pub aliases: Vec<String>,
+
+    pub description: String,
+
+    pub min_len: usize,
+    pub extra_len: Option<usize>,
+
+    pub allow_binding: bool,
+    pub is_hidden: bool,
+    pub is_required: bool,
+}
+
+impl OptionSpec {
+    pub fn boolean<TName: Into<String>>(name: TName) -> Self {
+        OptionSpec {
+            primary_name: name.into(),
+            aliases: vec![],
+            description: "".to_string(),
+            
+            min_len: 0,
+            extra_len: Some(0),
+            
+            allow_binding: false,
+            is_hidden: false,
+            is_required: true,
+        }
+    }
+
+    pub fn parametrized<TName: Into<String>>(name: TName) -> Self {
+        OptionSpec {
+            primary_name: name.into(),
+            aliases: vec![],
+            description: "".to_string(),
+            
+            min_len: 1,
+            extra_len: Some(0),
+            
+            allow_binding: false,
+            is_hidden: false,
+            is_required: true,
+        }
+    }
+}
+
+impl std::fmt::Display for OptionSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_required {
+            write!(f, "<{}", self.primary_name)?;
+        } else {
+            write!(f, "[{}", self.primary_name)?;
+        }
+
+        for alias in &self.aliases {
+            write!(f, ",{}", alias)?;
+        }
+
+        if self.min_len > 0 || self.extra_len != Some(0) {
+            write!(f, " ")?;
+            format_range(f, "arg", self.min_len, self.extra_len)?;
+        }
+
+        if self.is_required {
+            write!(f, ">")
+        } else {
+            write!(f, "]")
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Component {
+    Positional(PositionalSpec),
+    Option(OptionSpec),
+}
+
+impl std::fmt::Display for Component {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Component::Positional(spec)
+                => write!(f, "{}", spec),
+
+            Component::Option(spec)
+                => write!(f, "{}", spec),
+        }
+    }
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CommandSpec {
+    pub paths: Vec<Vec<String>>,
+    pub components: Vec<Component>,
+}
+
+impl std::fmt::Display for CommandSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        format_collection(f, self.components.iter(), " ")?;
+        Ok(())
+    }
+}
+
+impl CommandSpec {
+    pub fn usage(&self) -> CommandUsageResult {
+        CommandUsageResult::new(self.clone())
+    }
+
+    pub fn build(&self, command_id: usize) -> Machine {
+        CommandBuilderContext::new(&self, command_id).build()
+    }
+}
+
+pub struct CommandBuilderContext<'cmds> {
+    machine: Machine<'cmds>,
+    spec: &'cmds CommandSpec,
+    inhibit_options: usize,
+}
+
+impl<'cmds> CommandBuilderContext<'cmds> {
+    fn new(spec: &'cmds CommandSpec, command_id: usize) -> Self {
+        CommandBuilderContext {
+            machine: Machine::new(command_id),
+            spec,
+            inhibit_options: 0,
+        }
+    }
+
+    fn enter_inhibit_options(&mut self) {
+        self.inhibit_options += 1;
+    }
+
+    fn exit_inhibit_options(&mut self) {
+        self.inhibit_options -= 1;
+    }
+
+    fn attach_options(&mut self, pre_options_node_id: usize) -> usize {
+        if self.inhibit_options > 0 {
+            return pre_options_node_id;
+        }
+
+        let post_options_node_id
+            = self.machine.create_node();
+
+        self.machine.register_shortcut(
+            pre_options_node_id,
+            post_options_node_id,
+        );
+
+        let options = self.spec.components.iter()
+            .enumerate()
+            .filter_map(|(i, component)| match component {
+                Component::Option(option) => Some((i, option)),
+                _ => None,
+            });
+
+        for (option_id, option) in options {
+            let all_names
+                = once(&option.primary_name)
+                    .chain(option.aliases.iter());
+
+            for name in all_names {
+                let mut post_option_node_id
+                    = self.machine.create_node();
+
+                self.machine.register_static(
+                    pre_options_node_id,
+                    Arg::User(name),
+                    post_option_node_id,
+                    Some(Reducer::StartValue(Attachment::Option, option_id)),
+                );
+
+                let accepts_arguments
+                    = option.min_len > 0 || option.extra_len != Some(0);
+
+                if accepts_arguments {
+                    self.enter_inhibit_options();
+
+                    post_option_node_id = self.attach_variadic(
+                        post_option_node_id,
+                        option.min_len,
+                        option.extra_len,
+                        Reducer::PushValue(Attachment::Option),
+                        Reducer::PushValue(Attachment::Option),
+                    );
+
+                    self.exit_inhibit_options();
+                }
+
+                self.machine.register_shortcut(
+                    post_option_node_id,
+                    pre_options_node_id,
+                );
+            }
+        }
+
+        post_options_node_id
+    }
+
+    fn attach_optional(&mut self, pre_node_id: usize, reducer: Reducer) -> usize {
+        let next_node_id
+            = self.machine.create_node();
+
+        self.machine.register_dynamic(
+            pre_node_id,
+            Some(Check::IsNotOptionLike),
+            next_node_id,
+            Some(reducer),
+        );
+
+        self.machine.register_shortcut(
+            pre_node_id,
+            next_node_id,
+        );
+
+        self.attach_options(next_node_id)
+    }
+
+    fn attach_required(&mut self, pre_node_id: usize, reducer: Reducer) -> usize {
+        let next_node_id
+            = self.machine.create_node();
+
+        self.machine.register_dynamic(
+            pre_node_id,
+            Some(Check::IsNotOptionLike),
+            next_node_id,
+            Some(reducer),
+        );
+
+        self.attach_options(next_node_id)
+    }
+
+    fn attach_variadic(&mut self, pre_node_id: usize, min_len: usize, extra_len: Option<usize>, start_action: Reducer, subsequent_actions: Reducer) -> usize {
+        let mut current_node_id
+            = pre_node_id;
+
+        let mut next_action
+            = start_action;
+
+        for _ in 0..min_len {
+            current_node_id = self.attach_required(current_node_id, next_action);
+            next_action = subsequent_actions;
+        }
+
+        match extra_len {
+            Some(extra_len) => {
+                for _ in 0..extra_len {
+                    current_node_id = self.attach_optional(current_node_id, next_action);
+                    next_action = subsequent_actions;
+                }
+            },
+
+            None => {
+                if next_action == start_action && next_action != subsequent_actions {
+                    current_node_id = self.attach_optional(current_node_id, next_action);
+                    next_action = subsequent_actions;
+                }
+
+                let next_node_id
+                    = self.machine.create_node();
+
+                self.machine.register_shortcut(
+                    current_node_id,
+                    next_node_id,
+                );
+
+                current_node_id
+                    = self.attach_options(next_node_id);
+
+                self.machine.register_dynamic(
+                    next_node_id,
+                    Some(Check::IsNotOptionLike),
+                    next_node_id,
+                    Some(next_action),
+                );
+            },
+        }
+
+        current_node_id
+    }
+
+    fn build(mut self) -> Machine<'cmds> {
+        let first_node_id
+            = self.machine.create_node();
+
+        self.machine.register_static(
+            INITIAL_NODE_ID,
+            Arg::StartOfInput,
+            first_node_id,
+            None,
+        );
+
+        let mut current_node_id
+            = self.attach_options(first_node_id);
+
+        if !self.spec.paths.is_empty() {
+            let post_paths_node_id
+                = self.machine.create_node();
+
+            for path in &self.spec.paths {
+                let mut current_path_node_id
+                    = first_node_id;
+
+                for segment in path {
+                    let post_segment_node_id
+                        = self.machine.create_node();
+
+                    self.machine.register_static(
+                        current_path_node_id,
+                        Arg::User(segment.as_str()),
+                        post_segment_node_id,
+                        None,
+                    );
+
+                    current_path_node_id
+                        = self.attach_options(post_segment_node_id);
+                }
+
+                self.machine.register_shortcut(
+                    current_path_node_id,
+                    post_paths_node_id,
+                );
+            }
+
+            current_node_id = post_paths_node_id;
+        }
+
+        let positionals
+            = self.spec.components.iter()
+                .enumerate()
+                .filter_map(|(i, component)| match component {
+                    Component::Positional(spec) => Some((i, spec)),
+                    _ => None,
+                });
+
+        for (id, spec) in positionals {
+            match spec {
+                PositionalSpec::Keyword {expected} => {
+                    let next_node_id
+                        = self.machine.create_node();
+
+                    self.machine.register_static(
+                        current_node_id,
+                        Arg::User(expected),
+                        next_node_id,
+                        Some(Reducer::IncreaseStaticCount),
+                    );
+
+                    current_node_id
+                        = self.attach_options(next_node_id);
+                },
+
+                PositionalSpec::Dynamic {min_len, extra_len, ..} => {
+                    current_node_id = self.attach_variadic(
+                        current_node_id,
+                        *min_len,
+                        *extra_len,
+                        Reducer::StartValue(Attachment::Positional, id),
+                        Reducer::PushValue(Attachment::Positional),
+                    );
+                },
+            }
+        }
+
+        self.machine.register_static(
+            current_node_id,
+            Arg::EndOfInput,
+            SUCCESS_NODE_ID,
+            None,
+        );
+
+        self.machine
+    }
+}
+
+#[derive(Clone)]
+pub struct CliBuilder<'cmds> {
+    commands: Vec<&'cmds CommandSpec>,
+}
+
+impl<'cmds> CliBuilder<'cmds> {
+    pub fn new() -> Self {
         CliBuilder {
             commands: vec![],
         }
     }
 
-    pub fn add_command(&mut self) -> &mut CommandBuilder {
-        let cli_index = self.commands.len();
-
-        self.commands.push(CommandBuilder::new(cli_index));
-        self.commands.last_mut().unwrap()
+    pub fn add_command(&mut self, spec: &'cmds CommandSpec) -> &mut Self {
+        self.commands.push(spec);
+        self
     }
 
     pub fn compile(&self) -> Machine {
-        let mut machine = Machine::new_any_of(self.commands.iter().map(|command| command.compile()));
+        let command_machines
+            = self.commands.iter()
+                .enumerate()
+                .map(|(command_id, &command)| command.build(command_id))
+                .collect::<Vec<_>>();
+
+        let mut machine
+            = Machine::new_any_of(command_machines);
+
         machine.simplify_machine();
-
-        machine
-    }
-}
-
-pub struct Arity {
-    leading: Vec<String>,
-    optionals: Vec<String>,
-    rest: Option<String>,
-    trailing: Vec<String>,
-    proxy: bool,
-}
-
-#[derive(Debug)]
-pub struct OptionDefinition {
-    pub name_set: Vec<String>,
-    pub description: String,
-    pub arity: usize,
-    pub hidden: bool,
-    pub required: bool,
-    pub allow_binding: bool,
-}
-
-impl Default for OptionDefinition {
-    fn default() -> Self {
-        OptionDefinition {
-            name_set: vec![],
-            description: String::new(),
-            arity: 0,
-            hidden: false,
-            required: false,
-            allow_binding: true,
-        }
-    }
-}
-
-pub struct CommandBuilder {
-    pub cli_index: usize,
-
-    pub paths: Vec<Vec<String>>,
-
-    pub options: BTreeMap<String, OptionDefinition>,
-    pub preferred_names: HashMap<String, String>,
-    pub required_options: Vec<String>,
-    pub valid_bindings: HashSet<String>,
-
-
-    pub arity: Arity,
-}
-
-pub struct CommandUsageOptions {
-    pub detailed: bool,
-    pub inline_options: bool,
-}
-
-pub struct CommandUsageResult {
-    pub usage: String,
-    pub detailed_option_list: Vec<OptionUsage>,
-}
-
-pub struct OptionUsage {
-    pub preferred_name: String,
-    pub name_set: Vec<String>,
-    pub definition: String,
-    pub description: String,
-    pub required: bool,
-}
-
-impl CommandBuilder {
-    pub fn new(cli_index: usize) -> CommandBuilder {
-        CommandBuilder {
-            cli_index,
-
-            paths: vec![],
-
-            options: BTreeMap::new(),
-            preferred_names: HashMap::new(),
-            required_options: vec![],
-            valid_bindings: HashSet::new(),
-
-            arity: Arity {
-                leading: vec![],
-                optionals: vec![],
-                rest: None,
-                trailing: vec![],
-                proxy: false,
-            },
-        }
-    }
-
-    pub fn usage(&self, opts: CommandUsageOptions) -> CommandUsageResult {
-        let mut segments = self.paths.first().cloned().unwrap_or_default();
-        let mut detailed_option_list = vec![];
-
-        if opts.detailed {
-            for (preferred_name, option) in &self.options {
-                if option.hidden {
-                    continue;
-                }
-
-                let mut args = vec![];
-                for t in 0..option.arity {
-                    args.push(format!(" #{}", t));
-                }
-
-                let definition = format!("{}{}", option.name_set.join(", "), args.join(""));
-
-                if !opts.inline_options && !option.description.is_empty() {
-                    detailed_option_list.push(OptionUsage {
-                        preferred_name: preferred_name.clone(),
-                        name_set: option.name_set.clone(),
-                        definition,
-                        description: option.description.clone(),
-                        required: option.required,
-                    });
-                } else {
-                    segments.push(if option.required {
-                        format!("<{}>", definition)
-                    } else {
-                        format!("[{}]", definition)
-                    });
-                }
-            }
-        }
-
-        for name in &self.arity.leading {
-            segments.push(format!("<{}>", name));
-        }
-
-        for name in &self.arity.optionals {
-            segments.push(format!("[{}]", name));
-        }
-
-        if self.arity.rest.is_some() {
-            segments.push(format!("[{}...]", self.arity.rest.as_ref().unwrap()));
-        }
-
-        for name in &self.arity.trailing {
-            segments.push(format!("<{}>", name));
-        }
-
-        CommandUsageResult {
-            usage: segments.join(" "),
-            detailed_option_list,
-        }
-    }
-
-    pub fn make_default(&mut self) -> &mut Self {
-        self.paths.push(vec![]);
-        self
-    }
-
-    pub fn add_path(&mut self, path: Vec<String>) -> &mut Self {
-        self.paths.push(path);
-        self
-    }
-
-    pub fn add_positional(&mut self, required: bool, name: &str) -> Result<&mut Self, BuildError> {
-        if !required {
-            if self.arity.rest.is_some() {
-                return Err(BuildError::OptionalParametersAfterRest);
-            } else if !self.arity.trailing.is_empty() {
-                return Err(BuildError::OptionalParametersAfterTrailingPositionals);
-            } else {
-                self.arity.optionals.push(name.to_string());
-            }
-        } else if !self.arity.optionals.is_empty() || self.arity.rest.is_some() {
-            self.arity.trailing.push(name.to_string());
-        } else {
-            self.arity.leading.push(name.to_string());
-        }
-
-        Ok(self)
-    }
-
-    pub fn add_rest(&mut self, name: &str) -> Result<&mut Self, BuildError> {
-        if self.arity.rest.is_some() {
-            return Err(BuildError::MultipleRestParameters);
-        } else if !self.arity.trailing.is_empty() {
-            return Err(BuildError::RestAfterTrailingPositionals);
-        } else {
-            self.arity.rest = Some(name.to_string());
-        }
-
-        Ok(self)
-    }
-
-    pub fn add_proxy(&mut self, name: &str) -> Result<&mut Self, BuildError> {
-        self.add_rest(name)?;
-        self.arity.proxy = true;
-
-        Ok(self)
-    }
-
-    pub fn add_option(&mut self, option: OptionDefinition) -> Result<&mut Self, BuildError> {
-        if !option.allow_binding && option.arity > 1 {
-            return Err(BuildError::ArityTooHighForNonBindingOption);
-        }
-
-        let preferred_name = option.name_set.iter()
-            .max_by_key(|s| s.len()).unwrap()
-            .clone();
-
-        for name in &option.name_set {
-            self.preferred_names.insert(name.to_string(), preferred_name.clone());
-        }
-
-        if option.allow_binding {
-            self.valid_bindings.insert(preferred_name.clone());
-        }
-
-        if option.required {
-            self.required_options.push(preferred_name.clone());
-        }
-
-        self.options.insert(preferred_name, option);
-
-        Ok(self)
-    }
-
-    pub fn compile(&self) -> Machine {
-        let mut machine = Machine::new(MachineContext::default());
-
-        let context = &mut machine.contexts[0];
-
-        context.preferred_names = self.preferred_names.clone();
-        context.valid_bindings = self.valid_bindings.clone();
-
-        let first_node_id: usize = machine.inject_node(Node::new());
-
-        machine.register_static(
-            INITIAL_NODE_ID,
-            Arg::StartOfInput,
-            first_node_id,
-            Reducer::InitializeState(self.cli_index, self.required_options.clone()),
-        );
-
-        let positional_argument = match self.arity.proxy {
-            true => Check::Always,
-            false => Check::IsNotOptionLike,
-        };
-
-        for path in &self.paths {
-            let mut last_path_node_id = first_node_id;
-
-            // We allow options to be specified before the path. Note that we
-            // only do this when there is a path, otherwise there would be
-            // some redundancy with the options attached later.
-            if !path.is_empty() {
-                let option_node_id = machine.inject_node(Node::new());
-                machine.register_shortcut(last_path_node_id, option_node_id);
-                self.register_options(&mut machine, option_node_id);
-                last_path_node_id = option_node_id;
-            }
-
-            for t in 0..path.len() {
-                let next_path_node_id = machine.inject_node(Node::new());
-                machine.register_static(last_path_node_id, Arg::User(path[t].clone()), next_path_node_id, Reducer::PushPath);
-                last_path_node_id = next_path_node_id;
-
-                if t + 1 < path.len() {
-                    // Allow to pass `-h` (without anything after it) after each part of a path.
-                    // Note that we do not do this for the last part, otherwise there would be
-                    // some redundancy with the `useHelp` attached later.
-                    let help_node_id = machine.inject_node(Node::new());
-                    machine.register_dynamic(last_path_node_id, Check::IsHelp, help_node_id, Reducer::UseHelp);
-                    machine.register_static(help_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::None);
-                }
-            }
-
-            if !self.arity.leading.is_empty() || !self.arity.proxy {
-                let help_node_id = machine.inject_node(Node::new());
-                machine.register_dynamic(last_path_node_id, Check::IsHelp, help_node_id, Reducer::UseHelp);
-                machine.register_dynamic(help_node_id, Check::Always, help_node_id, Reducer::PushOptional);
-                machine.register_static(help_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::None);
-
-                self.register_options(&mut machine, last_path_node_id);
-            }
-
-            if !self.arity.leading.is_empty() {
-                machine.register_static(last_path_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError(CommandError::MissingPositionalArguments));
-                machine.register_static(last_path_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
-            }
-
-            let mut last_leading_node_id = last_path_node_id;
-            for t in 0..self.arity.leading.len() {
-                let next_leading_node_id = machine.inject_node(Node::new());
-
-                if !self.arity.proxy || t + 1 != self.arity.leading.len() {
-                    self.register_options(&mut machine, next_leading_node_id);
-                }
-
-                if !self.arity.trailing.is_empty() || t + 1 != self.arity.leading.len() {
-                    machine.register_static(next_leading_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError(CommandError::MissingPositionalArguments));
-                    machine.register_static(next_leading_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
-                }
-
-                machine.register_dynamic(last_leading_node_id, Check::IsNotOptionLike, next_leading_node_id, Reducer::PushPositional);
-                last_leading_node_id = next_leading_node_id;
-            }
-
-            let mut last_extra_node_id = last_leading_node_id;
-            if self.arity.rest.is_some() || !self.arity.optionals.is_empty() {
-                let extra_shortcut_node_id = machine.inject_node(Node::new());
-                machine.register_shortcut(last_leading_node_id, extra_shortcut_node_id);
-
-                if self.arity.rest.is_some() {
-                    let extra_node_id = machine.inject_node(Node::new());
-
-                    if !self.arity.proxy {
-                        self.register_options(&mut machine, extra_node_id);
-                    }
-
-                    machine.register_dynamic(last_leading_node_id, positional_argument.clone(), extra_node_id, Reducer::PushRest);
-                    machine.register_dynamic(extra_node_id, positional_argument.clone(), extra_node_id, Reducer::PushRest);
-                    machine.register_shortcut(extra_node_id, extra_shortcut_node_id);
-                } else {
-                    for _ in 0..self.arity.optionals.len() {
-                        let extra_node_id = machine.inject_node(Node::new());
-
-                        if !self.arity.proxy {
-                            self.register_options(&mut machine, extra_node_id);
-                        }
-
-                        machine.register_dynamic(last_extra_node_id, positional_argument.clone(), extra_node_id, Reducer::PushOptional);
-                        machine.register_shortcut(extra_node_id, extra_shortcut_node_id);
-                        last_extra_node_id = extra_node_id;
-                    }
-                }
-
-                last_extra_node_id = extra_shortcut_node_id;
-            }
-
-            if !self.arity.trailing.is_empty() {
-                machine.register_static(last_extra_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError(CommandError::MissingPositionalArguments));
-                machine.register_static(last_extra_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
-            }
-
-            let mut last_trailing_node_id = last_extra_node_id;
-            for t in 0..self.arity.trailing.len() {
-                let next_trailing_node_id = machine.inject_node(Node::new());
-
-                if !self.arity.proxy {
-                    self.register_options(&mut machine, next_trailing_node_id);
-                }
-
-                if t + 1 < self.arity.trailing.len() {
-                    machine.register_static(next_trailing_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetError(CommandError::MissingPositionalArguments));
-                    machine.register_static(next_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
-                }
-
-                machine.register_dynamic(last_trailing_node_id, Check::IsNotOptionLike, next_trailing_node_id, Reducer::PushPositional);
-                last_trailing_node_id = next_trailing_node_id;
-            }
-
-            machine.register_dynamic(last_trailing_node_id, positional_argument.clone(), ERROR_NODE_ID, Reducer::SetError(CommandError::ExtraneousPositionalArguments));
-            machine.register_static(last_trailing_node_id, Arg::EndOfInput, SUCCESS_NODE_ID, Reducer::AcceptState);
-            machine.register_static(last_trailing_node_id, Arg::EndOfPartialInput, SUCCESS_NODE_ID, Reducer::AcceptState);
-        }
-
         machine
     }
 
-    fn register_options(&self, machine: &mut Machine, node_id: usize) {
-        machine.register_dynamic(node_id, Check::IsExactOption("--".to_string()), node_id, Reducer::InhibateOptions);
-        machine.register_dynamic(node_id, Check::IsBatchOption, node_id, Reducer::PushBatch);
-        machine.register_dynamic(node_id, Check::IsBoundOption, node_id, Reducer::PushBound);
-        machine.register_dynamic(node_id, Check::IsUnsupportedOption, ERROR_NODE_ID, Reducer::SetError(CommandError::UnknownOption));
-        machine.register_dynamic(node_id, Check::IsInvalidOption, ERROR_NODE_ID, Reducer::SetError(CommandError::InvalidOption));
-
-        for (preferred_name, option) in &self.options {
-            if option.arity == 0 {
-                for name in &option.name_set {
-                    machine.register_dynamic(node_id, Check::IsExactOption(name.to_string()), node_id, Reducer::PushTrue(preferred_name.clone()));
-
-                    if name.starts_with("--") && !name.starts_with("--no-") {
-                        machine.register_dynamic(node_id, Check::IsNegatedOption(name.to_string()), node_id, Reducer::PushFalse(preferred_name.clone()));
-                    }
-                }
-            } else {
-                // We inject a new node at the end of the state machine
-                let mut last_node_id = machine.inject_node(Node::new());
-
-                // We register transitions from the starting node to this new node
-                for name in &option.name_set {
-                    machine.register_dynamic(node_id, Check::IsExactOption(name.to_string()), last_node_id, Reducer::PushNone(preferred_name.clone()));
-                }
-
-                // For each argument, we inject a new node at the end and we
-                // register a transition from the current node to this new node
-                for _ in 0..option.arity {
-                    let next_node_id = machine.inject_node(Node::new());
-
-                    // We can provide better errors when another option or EndOfInput is encountered
-                    machine.register_static(last_node_id, Arg::EndOfInput, ERROR_NODE_ID, Reducer::SetOptionArityError);
-                    machine.register_static(last_node_id, Arg::EndOfPartialInput, ERROR_NODE_ID, Reducer::SetOptionArityError);
-                    machine.register_dynamic(last_node_id, Check::IsOptionLike, ERROR_NODE_ID, Reducer::SetOptionArityError);
-
-                    // If the option has a single argument, no need to store it in an array
-                    let action = match option.arity {
-                        1 => Reducer::ResetStringValue,
-                        _ => Reducer::AppendStringValue,
-                    };
-
-                    machine.register_dynamic(last_node_id, Check::IsNotOptionLike, next_node_id, action);
-
-                    last_node_id = next_node_id;
-                }
-
-                // In the end, we register a shortcut from
-                // the last node back to the starting node
-                machine.register_shortcut(last_node_id, node_id);
-            }
+    pub fn run<'args>(&self, args: &[&'args str]) -> Result<ParseResult<'cmds, 'args>, Error<'cmds>> {
+        if args == vec!["--help"] || args == vec!["-h"] {
+            return Ok(ParseResult::Builtin(BuiltinCommand::Help(None)));
         }
+
+        let machine
+            = self.compile();
+
+        let state: Vec<State<'args>>
+            = runner::Runner::run(&machine, args).unwrap();
+        
+        let best_state = state
+            .select_best_state(&self.commands)?;
+
+        let command
+            = self.commands[best_state.context_id];
+
+        Ok(ParseResult::Ready(best_state, command))
     }
+}
+
+#[test]
+fn it_should_select_the_default_command_when_using_no_arguments() {
+    let mut cli_builder
+        = CliBuilder::new();
+
+    let spec = CommandSpec {
+        paths: vec![],
+        components: vec![],
+    };
+
+    cli_builder.add_command(&spec);
+
+    let result
+        = cli_builder.run(&[""; 0]);
+
+    let Ok(ParseResult::Ready(state, _)) = result else {
+        panic!("Expected a ready result");
+    };
+
+    assert_eq!(state.context_id, 0);
+}
+
+#[test]
+fn it_should_select_the_default_command_when_using_mandatory_positional_arguments() {
+    let mut cli_builder
+        = CliBuilder::new();
+
+    let spec = CommandSpec {
+        paths: vec![],
+        components: vec![
+            Component::Positional(PositionalSpec::required()),
+            Component::Positional(PositionalSpec::required()),
+        ],
+    };
+
+    cli_builder.add_command(&spec);
+
+    let result
+        = cli_builder.run(&["foo", "bar"]);
+
+    let Ok(ParseResult::Ready(state, _)) = result else {
+        panic!("Expected a ready result");
+    };
+
+    assert_eq!(state.context_id, 0);
+}
+
+#[test]
+fn it_should_select_commands_by_their_path() {
+    let mut cli_builder
+        = CliBuilder::new();
+
+    let spec = CommandSpec {
+        paths: vec![],
+        components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
+    };
+
+    cli_builder.add_command(&spec);
+
+    let result
+        = cli_builder.run(&["foo"]);
+
+    let Ok(ParseResult::Ready(state, _)) = result else {
+        panic!("Expected a ready result");
+    };
+
+    assert_eq!(state.context_id, 0);
+
+    let result
+        = cli_builder.run(&["bar"]);
+
+    let Ok(ParseResult::Ready(state, _)) = result else {
+        panic!("Expected a ready result");
+    };
+
+    assert_eq!(state.context_id, 1);
+}
+
+#[test]
+fn it_should_favor_paths_over_mandatory_positional_arguments() {
+    let mut cli_builder
+        = CliBuilder::new();
+
+    let spec = CommandSpec {
+        paths: vec![],
+        components: vec![Component::Positional(PositionalSpec::required())],
+    };
+
+    cli_builder.add_command(&spec);
+
+    let result
+        = cli_builder.run(&["foo"]);
+
+    let Ok(ParseResult::Ready(state, _)) = result else {
+        panic!("Expected a ready result");
+    };
+
+    assert_eq!(state.context_id, 1);
+}
+
+#[test]
+fn it_should_favor_paths_over_optional_positional_arguments() {
+    let mut cli_builder
+        = CliBuilder::new();
+
+    let spec1 = CommandSpec {
+        paths: vec![],
+        components: vec![Component::Positional(PositionalSpec::optional())],
+    };
+
+    let spec2 = CommandSpec {
+        paths: vec![],
+        components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
+    };
+
+    cli_builder.add_command(&spec1);
+    cli_builder.add_command(&spec2);
+
+    let result
+        = cli_builder.run(&["foo"]);
+
+    let Ok(ParseResult::Ready(state, _)) = result else {
+        panic!("Expected a ready result");
+    };
+
+    assert_eq!(state.context_id, 1);
+}
+
+#[test]
+fn it_should_aggregate_positional_values() {
+    let mut cli_builder
+        = CliBuilder::new();
+
+    let spec = CommandSpec {
+        paths: vec![],
+        components: vec![
+            Component::Positional(PositionalSpec::required()),
+            Component::Positional(PositionalSpec::required()),
+        ],
+    };
+
+    cli_builder.add_command(&spec);
+
+    let result
+        = cli_builder.run(&["foo", "bar"]);
+
+    let Ok(ParseResult::Ready(state, _)) = result else {
+        panic!("Expected a ready result");
+    };
+
+    assert_eq!(state.values(), vec![
+        (0, vec!["foo"]),
+        (1, vec!["bar"]),
+    ]);
+}
+
+#[test]
+fn it_should_aggregate_positional_values_with_rest() {
+    let mut cli_builder
+        = CliBuilder::new();
+
+    let spec = CommandSpec {
+        paths: vec![],
+        components: vec![
+            Component::Positional(PositionalSpec::required()),
+            Component::Positional(PositionalSpec::rest()),
+        ],
+    };
+
+    cli_builder.add_command(&spec);
+
+    let result
+        = cli_builder.run(&["foo", "bar", "baz"]);
+
+    let Ok(ParseResult::Ready(state, _)) = result else {
+        panic!("Expected a ready result");
+    };
+
+    assert_eq!(state.values(), vec![
+        (0, vec!["foo"]),
+        (1, vec!["bar", "baz"]),
+    ]);
 }

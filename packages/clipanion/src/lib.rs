@@ -11,10 +11,18 @@ pub mod format;
 pub mod details;
 pub mod prelude;
 
+pub use advanced::Environment;
+
+pub use clipanion_core::{
+    CommandError,
+    Error,
+};
+
 #[macro_export]
 macro_rules! program_enum {
     ($name:ident, [$($command:ident),* $(,)?]) => {
         pub enum $name {
+            Builtin($crate::core::BuiltinCommand<'static>),
             $($command($command),)*
         }
     }
@@ -34,14 +42,24 @@ macro_rules! program_provider {
                 FNS[command_index](opts)
             }
 
-            fn parse_args<'cmds>(builder: &$crate::core::CliBuilder<'cmds>, environment: &$crate::advanced::Environment) -> Result<$name, $crate::core::Error<'cmds>> {
+            fn parse_args(builder: &$crate::core::CliBuilder<'static>, environment: &$crate::advanced::Environment) -> Result<$name, $crate::core::Error<'static>> {
                 let argv
                     = environment.argv.iter()
                         .map(|s| s.as_str())
                         .collect::<Vec<_>>();
 
-                let (state, command_spec)
+                let parse_result
                     = builder.run(&argv)?;
+
+                let (state, command_spec) = match parse_result {
+                    $crate::core::ParseResult::Ready(state, command_spec) => {
+                        (state, command_spec)
+                    },
+
+                    $crate::core::ParseResult::Builtin(builtin) => {
+                        return Ok($name::Builtin(builtin));
+                    },
+                };
 
                 const FNS: &[fn(&$crate::advanced::Environment, &$crate::core::State<'_>) -> Result<$name, $crate::core::CommandError>] = &[
                     $(|environment, state| {
@@ -114,7 +132,7 @@ macro_rules! program_executor {
 
     ($name:ident, [$($command:ident),* $(,)?], async) => {
         impl $crate::details::CommandExecutorAsync for $name {
-            async fn execute_cli_state<'a>(environment: &$crate::advanced::Environment, state: $crate::core::State<'a>) -> $crate::details::CommandResult {
+            async fn execute_cli_state<'args>(environment: &$crate::advanced::Environment, state: $crate::core::State<'args>) -> $crate::details::CommandResult {
                 use $crate::details::CommandController;
 
                 let mut command_index
@@ -175,7 +193,7 @@ macro_rules! test_cli_success {
             const ARGS: &[&str] = $args;
 
             let cli = $cli_name::build_cli().unwrap();
-            let env = Environment::default().with_argv(ARGS.iter().map(|s| s.to_string()).collect());
+            let env = $crate::advanced::Environment::default().with_argv(ARGS.iter().map(|s| s.to_string()).collect());
 
             let result = $cli_name::parse_args(&cli, &env);
             let f: fn($command_name) -> () = $fn;
@@ -197,7 +215,7 @@ macro_rules! test_cli_failure {
             const ARGS: &[&str] = $args;
 
             let cli = $cli_name::build_cli().unwrap();
-            let env = Environment::default().with_argv(ARGS.iter().map(|s| s.to_string()).collect());
+            let env = $crate::advanced::Environment::default().with_argv(ARGS.iter().map(|s| s.to_string()).collect());
 
             let result = $cli_name::parse_args(&cli, &env);
             let f: fn($crate::core::Error<'_>) -> () = $fn;

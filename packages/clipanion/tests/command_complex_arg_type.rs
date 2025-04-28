@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
-use clipanion::{advanced::Environment, details::{CommandController, CommandProvider}, prelude::*, program, test_cli_failure, test_cli_success};
-use clipanion_core::{CommandError, CustomError, Error};
+use clipanion::{prelude::*, program, test_cli_failure, test_cli_success, CommandError, Error};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Size {
@@ -45,5 +44,5 @@ test_cli_success!(it_works, MyCli, MyCommand, &["10x20"], |command| {
 });
 
 test_cli_failure!(it_fails_with_invalid_data, MyCli, MyCommand, &["10x"], |error| {
-    assert_eq!(error, Error::CommandError(MyCommand::command_spec().unwrap(), CommandError::Custom(CustomError::new("Invalid height".to_string()))));
+    assert_eq!(error, Error::CommandError(MyCommand::command_spec().unwrap(), CommandError::Custom("Invalid height".to_string())));
 });

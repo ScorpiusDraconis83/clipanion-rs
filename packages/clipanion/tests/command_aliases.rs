@@ -1,4 +1,4 @@
-use clipanion::{advanced::Environment, details::CommandProvider, prelude::*, program, test_cli_success};
+use clipanion::{prelude::*, program, test_cli_success, Environment};
 
 #[cli::command]
 #[cli::path("foo")]

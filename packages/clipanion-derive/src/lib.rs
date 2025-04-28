@@ -368,18 +368,21 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
                     for field in 0..item_count {
                         tuple_fields.push(quote! {
-                            args.get(#field).map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).transpose()?.unwrap()
+                            args.get(#field).map(|s| -> Result<_, clipanion::core::CommandError> {
+                                s.parse().map_err(clipanion::details::handle_parse_error)
+                            }).transpose()?.unwrap()
                         });
                     }
     
                     quote! {
-                        args.chunks(#item_count).map(|chunk| {
-                            println!("{:?}", chunk);
+                        args.chunks(#item_count).map(|chunk| -> Result<_, clipanion::core::CommandError> {
                             Ok((#(#tuple_fields),*))
                         }).collect::<Result<Vec<_>, _>>()?
                     }
                 } else {
-                    quote! {args.iter().map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).collect::<Result<Vec<_>, _>>()?}
+                    quote! {args.iter().map(|s| -> Result<_, clipanion::core::CommandError> {
+                        s.parse().map_err(clipanion::details::handle_parse_error)
+                    }).collect::<Result<Vec<_>, _>>()?}
                 }
             } else if is_bool {
                 quote! {Some(true)}
@@ -388,13 +391,17 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
                 for field in 0..item_count {
                     tuple_fields.push(quote! {
-                        args.get(#field).map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).transpose()?.unwrap()
+                        args.get(#field).map(|s| -> Result<_, clipanion::core::CommandError> {
+                            s.parse().map_err(clipanion::details::handle_parse_error)
+                        }).transpose()?.unwrap()
                     });
                 }
 
                 quote! {Some((#(#tuple_fields),*))}
             } else {
-                quote! {args.first().map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).transpose()?}
+                quote! {args.first().map(|s| -> Result<_, clipanion::core::CommandError> {
+                    s.parse().map_err(clipanion::details::handle_parse_error)
+                }).transpose()?}
             };
 
             let default_value
@@ -574,7 +581,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 let mut partial
                     = Partial::default();
 
-                let FNS: &[fn(&mut Partial, &[&str]) -> Result<(), clipanion::core::CustomError>] = &[
+                let FNS: &[fn(&mut Partial, &[&str]) -> Result<(), clipanion::core::CommandError>] = &[
                     #(|partial, args| {
                         #hydraters
                         Ok(())

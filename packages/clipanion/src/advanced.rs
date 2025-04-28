@@ -41,35 +41,42 @@ impl Default for Environment {
     }
 }
 
-enum PrepareResult<'cmds, 'args> {
-    Success,
-    Failure,
-    Ready(State<'args>, &'cmds CommandSpec),
-}
-
-fn prepare_command<'cmds, 'args, S: CommandProvider>(builder: &'cmds clipanion_core::CliBuilder, env: &'args Environment) -> PrepareResult<'cmds, 'args> {
+fn prepare_command<'cmds, 'args, S: CommandProvider>(builder: &'cmds clipanion_core::CliBuilder, env: &'args Environment) -> Result<clipanion_core::ParseResult<'cmds, 'args>, clipanion_core::Error<'cmds>> {
     let args
         = env.argv.iter()
             .map(|s| s.as_str())
             .collect::<Vec<_>>();
 
-    let parse_result
-        = builder.run(&args);
-
-    let Ok((state, command)) = parse_result else {
-        println!("{}", Formatter::<S>::format_parse_error(&env.info, &parse_result.unwrap_err()));
-        return PrepareResult::Failure;
-    };
-
-    PrepareResult::Ready(state, command)
+    builder.run(&args)
 }
 
-fn finalize_command<S: CommandProvider>(env: &Environment, command_spec: &CommandSpec, command_result: CommandResult) -> std::process::ExitCode {
-    if let Some(err) = &command_result.error_message {
-        println!("{}", Formatter::<S>::format_error(&env.info, "Error", &err, vec![command_spec]));
-    }
+fn finalize_command<'cmds, 'args, S: CommandProvider>(env: &Environment, parse_result: Result<clipanion_core::ParseResult<'cmds, 'args>, clipanion_core::Error<'cmds>>) -> std::process::ExitCode {
+    match parse_result {
+        Ok(clipanion_core::ParseResult::Ready(_, _)) => {
+            unreachable!("This is supposed to be handled by the executor");
+        },
 
-    command_result.exit_code
+        Ok(clipanion_core::ParseResult::Builtin(_)) => {
+            std::process::ExitCode::SUCCESS
+        },
+
+        Err(clipanion_core::Error::CommandError(command_spec, command_error)) => {
+            println!("{}", Formatter::<S>::format_error(&env.info, "Error", &command_error.to_string(), vec![command_spec]));
+            std::process::ExitCode::FAILURE
+        },
+
+        Err(clipanion_core::Error::AmbiguousSyntax(_)) => {
+            std::process::ExitCode::FAILURE
+        },
+
+        Err(clipanion_core::Error::InternalError) => {
+            std::process::ExitCode::FAILURE
+        },
+
+        Err(clipanion_core::Error::NotFound(_)) => {
+            std::process::ExitCode::FAILURE
+        },
+    }
 }
 
 pub trait Cli {
@@ -82,22 +89,20 @@ impl<S: CommandProvider + CommandExecutor> Cli for S {
         let builder = S::build_cli()
             .unwrap();
 
-        let preparation
+        let parse_result
             = prepare_command::<S>(&builder, &env);
 
-        match preparation {
-            PrepareResult::Success
-                => std::process::ExitCode::SUCCESS,
+        if let Ok(clipanion_core::ParseResult::Ready(state, command_spec)) = parse_result {
+            let command_result
+                = S::execute_cli_state(&env, state);
 
-            PrepareResult::Failure
-                => std::process::ExitCode::FAILURE,
+            if let Some(error_message) = &command_result.error_message {
+                finalize_command::<S>(&env, Err(clipanion_core::Error::CommandError(command_spec, error_message.to_string().into())));
+            }
 
-            PrepareResult::Ready(state, command_spec) => {
-                let command_result
-                    = S::execute_cli_state(&env, state);
-
-                finalize_command::<S>(&env, &command_spec, command_result)
-            },
+            command_result.exit_code
+        } else {
+            finalize_command::<S>(&env, parse_result)
         }
     }
 
@@ -116,22 +121,20 @@ impl<S: CommandProvider + CommandExecutorAsync> CliAsync for S {
         let builder = S::build_cli()
             .unwrap();
 
-        let preparation
+        let parse_result
             = prepare_command::<S>(&builder, &env);
 
-        match preparation {
-            PrepareResult::Success
-                => std::process::ExitCode::SUCCESS,
+        if let Ok(clipanion_core::ParseResult::Ready(state, command_spec)) = parse_result {
+            let command_result
+                = S::execute_cli_state(&env, state).await;
 
-            PrepareResult::Failure
-                => std::process::ExitCode::FAILURE,
+            if let Some(error_message) = &command_result.error_message {
+                finalize_command::<S>(&env, Err(clipanion_core::Error::CommandError(command_spec, error_message.to_string().into())));
+            }
 
-            PrepareResult::Ready(state, command_spec) => {
-                let command_result
-                    = S::execute_cli_state(&env, state).await;
-
-                finalize_command::<S>(&env, &command_spec, command_result)
-            },
+            command_result.exit_code
+        } else {
+            finalize_command::<S>(&env, parse_result)
         }
     }
 

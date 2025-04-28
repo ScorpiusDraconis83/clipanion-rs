@@ -1,26 +1,9 @@
-use crate::builder2::CommandSpec;
-
-#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
-pub struct CustomError {
-    message: String,
-}
-
-impl CustomError {
-    pub fn new(message: String) -> Self {
-        Self { message }
-    }
-}
-
-impl std::fmt::Display for CustomError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
+use crate::builder::CommandSpec;
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum CommandError {
     #[error("{0}")]
-    Custom(#[from] CustomError),
+    Custom(String),
 
     #[error("Missing required option argument {0}")]
     MissingOptionArguments(String),
@@ -38,19 +21,25 @@ pub enum CommandError {
     ExtraneousPositionalArguments,
 }
 
+impl From<String> for CommandError {
+    fn from(message: String) -> Self {
+        CommandError::Custom(message)
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
-pub enum Error<'a> {
+pub enum Error<'cmds> {
     #[error("The provided arguments are ambiguous and need to be refined further. Possible options are:")]
-    AmbiguousSyntax(Vec<&'a CommandSpec>),
+    AmbiguousSyntax(Vec<&'cmds CommandSpec>),
 
     #[error("{1}")]
-    CommandError(&'a CommandSpec, CommandError),
+    CommandError(&'cmds CommandSpec, CommandError),
 
     #[error("Something unexpected happened; this seems to be a bug in the CLI framework itself")]
     InternalError,
 
     #[error("The provided arguments don't match any known syntax; use `--help` to get a list of possible options")]
-    NotFound(Vec<&'a CommandSpec>),
+    NotFound(Vec<&'cmds CommandSpec>),
 }
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]

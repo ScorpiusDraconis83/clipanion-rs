@@ -1,5 +1,4 @@
-use clipanion::{advanced::Environment, details::{CommandController, CommandProvider}, prelude::*, program, test_cli_failure, test_cli_success};
-use clipanion_core::Error;
+use clipanion::{prelude::*, program, test_cli_failure, test_cli_success, Error};
 
 #[cli::command]
 #[cli::path("foo", "bar")]

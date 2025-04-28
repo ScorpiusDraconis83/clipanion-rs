@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
-use clipanion::{advanced::Environment, details::{CommandController, CommandProvider}, prelude::*, program, test_cli_failure, test_cli_success};
-use clipanion_core::{CommandError, CustomError, Error};
+use clipanion::{prelude::*, program, test_cli_failure, test_cli_success, CommandError, Error};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Size {
@@ -66,9 +65,9 @@ test_cli_success!(it_works, MyCli, MyCommand, &["--size", "10x20", "red"], |comm
 });
 
 test_cli_failure!(it_fails_with_invalid_data_1, MyCli, MyCommand, &["--size", "10x", "red"], |error| {
-    assert_eq!(error, Error::CommandError(MyCommand::command_spec().unwrap(), CommandError::Custom(CustomError::new("Invalid height".to_string()))));
+    assert_eq!(error, Error::CommandError(MyCommand::command_spec().unwrap(), CommandError::Custom("Invalid height".to_string())));
 });
 
 test_cli_failure!(it_fails_with_invalid_data_2, MyCli, MyCommand, &["--size", "10x20", "salt"], |error| {
-    assert_eq!(error, Error::CommandError(MyCommand::command_spec().unwrap(), CommandError::Custom(CustomError::new("Invalid color".to_string()))));
+    assert_eq!(error, Error::CommandError(MyCommand::command_spec().unwrap(), CommandError::Custom("Invalid color".to_string())));
 });
