@@ -22,8 +22,8 @@ pub enum CommandError {
     #[error("{0}")]
     Custom(#[from] CustomError),
 
-    #[error("Missing required option argument")]
-    MissingOptionArguments,
+    #[error("Missing required option argument {0}")]
+    MissingOptionArguments(String),
 
     #[error("Unsupported option name")]
     UnknownOption,
@@ -53,7 +53,7 @@ pub enum Error<'a> {
     NotFound(Vec<&'a CommandSpec>),
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum BuildError {
     #[error("Commands can only define a single rest parameter")]
     MultipleRestParameters,

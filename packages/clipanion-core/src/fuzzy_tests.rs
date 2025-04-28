@@ -264,14 +264,14 @@ fn test_gen_random_command_line() {
                         = CliBuilder::new();
 
                     cli_builder
-                        .add_command(command_spec.clone());
+                        .add_command(&command_spec);
 
                     let command_line_args
                         = command_line.iter().map(|s| s.as_str()).collect::<Vec<_>>();
 
                     let (state, _command)
                         = cli_builder
-                            .run(command_line_args)
+                            .run(&command_line_args)
                             .unwrap();
 
                     assert_eq!(state.values_owned(), command_values);

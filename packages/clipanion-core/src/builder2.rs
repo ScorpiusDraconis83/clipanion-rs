@@ -46,18 +46,21 @@ impl<'a> State<'a> {
     }
 }
 
-pub trait SelectBestState<'a> {
-    fn select_best_state<'b>(self) -> Result<State<'a>, Error<'b>>;
+pub trait SelectBestState<'args> {
+    fn select_best_state<'cmds>(self, commands: &Vec<&'cmds CommandSpec>) -> Result<State<'args>, Error<'cmds>>;
 }
 
-impl<'a> SelectBestState<'a> for Vec<State<'a>> {
-    fn select_best_state<'b>(self) -> Result<State<'a>, Error<'b>> {
+impl<'args> SelectBestState<'args> for Vec<State<'args>> {
+    fn select_best_state<'cmds>(self, commands: &Vec<&'cmds CommandSpec>) -> Result<State<'args>, Error<'cmds>> {
         let mut all_states = self;
 
         let highest_keyword_count = all_states.iter()
             .map(|state| state.keyword_count)
-            .max()
-            .unwrap();
+            .max();
+
+        let Some(highest_keyword_count) = highest_keyword_count else {
+            return Err(Error::NotFound(vec![]));
+        };
 
         all_states.retain(|state| {
             state.keyword_count == highest_keyword_count
@@ -643,18 +646,18 @@ impl<'a> CommandBuilderContext<'a> {
 }
 
 #[derive(Clone)]
-pub struct CliBuilder {
-    commands: Vec<CommandSpec>,
+pub struct CliBuilder<'cmds> {
+    commands: Vec<&'cmds CommandSpec>,
 }
 
-impl CliBuilder {
+impl<'cmds> CliBuilder<'cmds> {
     pub fn new() -> Self {
         CliBuilder {
             commands: vec![],
         }
     }
 
-    pub fn add_command(&mut self, spec: CommandSpec) -> &mut Self {
+    pub fn add_command(&mut self, spec: &'cmds CommandSpec) -> &mut Self {
         self.commands.push(spec);
         self
     }
@@ -663,7 +666,7 @@ impl CliBuilder {
         let command_machines
             = self.commands.iter()
                 .enumerate()
-                .map(|(command_id, command)| command.build(command_id))
+                .map(|(command_id, &command)| command.build(command_id))
                 .collect::<Vec<_>>();
 
         let mut machine
@@ -673,18 +676,20 @@ impl CliBuilder {
         machine
     }
 
-    pub fn run<'a, 'b>(&'a self, args: impl IntoIterator<Item = &'b str>) -> Result<(State<'b>, &'a CommandSpec), Error<'a>> where 'a: 'b {
+    pub fn run<'args>(&self, args: &[&'args str]) -> Result<(State<'args>, &'cmds CommandSpec), Error<'cmds>> {
         let machine
             = self.compile();
 
-        let state
-            = runner2::Runner::run(&machine, args).unwrap()
-                .select_best_state()?;
+        let state: Vec<State<'args>>
+            = runner2::Runner::run(&machine, args).unwrap();
+        
+        let best_state = state
+            .select_best_state(&self.commands)?;
 
         let command
-            = &self.commands[state.context_id];
+            = self.commands[best_state.context_id];
 
-        Ok((state, command))
+        Ok((best_state, command))
     }
 }
 
@@ -693,13 +698,15 @@ fn it_should_select_the_default_command_when_using_no_arguments() {
     let mut cli_builder
         = CliBuilder::new();
 
-    cli_builder.add_command(CommandSpec {
+    let spec = CommandSpec {
         paths: vec![],
         components: vec![],
-    });
+    };
+
+    cli_builder.add_command(&spec);
 
     let (state, _context)
-        = cli_builder.run([""; 0]).unwrap();
+        = cli_builder.run(&[""; 0]).unwrap();
 
     assert_eq!(state.context_id, 0);
 }
@@ -709,16 +716,18 @@ fn it_should_select_the_default_command_when_using_mandatory_positional_argument
     let mut cli_builder
         = CliBuilder::new();
 
-    cli_builder.add_command(CommandSpec {
+    let spec = CommandSpec {
         paths: vec![],
         components: vec![
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::required()),
         ],
-    });
+    };
+
+    cli_builder.add_command(&spec);
 
     let (state, _context)
-        = cli_builder.run(["foo", "bar"]).unwrap();
+        = cli_builder.run(&["foo", "bar"]).unwrap();
 
     assert_eq!(state.context_id, 0);
 }
@@ -728,23 +737,20 @@ fn it_should_select_commands_by_their_path() {
     let mut cli_builder
         = CliBuilder::new();
 
-    cli_builder.add_command(CommandSpec {
+    let spec = CommandSpec {
         paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
-    });
+    };
 
-    cli_builder.add_command(CommandSpec {
-        paths: vec![],
-        components: vec![Component::Positional(PositionalSpec::keyword("bar"))],
-    });
+    cli_builder.add_command(&spec);
 
     let (state, _context)
-        = cli_builder.run(["foo"]).unwrap();
+        = cli_builder.run(&["foo"]).unwrap();
 
     assert_eq!(state.context_id, 0);
 
     let (state, _context)
-        = cli_builder.run(["bar"]).unwrap();
+        = cli_builder.run(&["bar"]).unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -754,18 +760,15 @@ fn it_should_favor_paths_over_mandatory_positional_arguments() {
     let mut cli_builder
         = CliBuilder::new();
 
-    cli_builder.add_command(CommandSpec {
+    let spec = CommandSpec {
         paths: vec![],
         components: vec![Component::Positional(PositionalSpec::required())],
-    });
+    };
 
-    cli_builder.add_command(CommandSpec {
-        paths: vec![],
-        components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
-    });
+    cli_builder.add_command(&spec);
 
     let (state, _context)
-        = cli_builder.run(["foo"]).unwrap();
+        = cli_builder.run(&["foo"]).unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -775,18 +778,21 @@ fn it_should_favor_paths_over_optional_positional_arguments() {
     let mut cli_builder
         = CliBuilder::new();
 
-    cli_builder.add_command(CommandSpec {
+    let spec1 = CommandSpec {
         paths: vec![],
         components: vec![Component::Positional(PositionalSpec::optional())],
-    });
+    };
 
-    cli_builder.add_command(CommandSpec {
+    let spec2 = CommandSpec {
         paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
-    });
+    };
+
+    cli_builder.add_command(&spec1);
+    cli_builder.add_command(&spec2);
 
     let (state, _context)
-        = cli_builder.run(["foo"]).unwrap();
+        = cli_builder.run(&["foo"]).unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -796,16 +802,18 @@ fn it_should_aggregate_positional_values() {
     let mut cli_builder
         = CliBuilder::new();
 
-    cli_builder.add_command(CommandSpec {
+    let spec = CommandSpec {
         paths: vec![],
         components: vec![
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::required()),
         ],
-    });
+    };
+
+    cli_builder.add_command(&spec);
 
     let (state, _context)
-        = cli_builder.run(["foo", "bar"]).unwrap();
+        = cli_builder.run(&["foo", "bar"]).unwrap();
 
     assert_eq!(state.values(), vec![
         (0, vec!["foo"]),
@@ -818,18 +826,18 @@ fn it_should_aggregate_positional_values_with_rest() {
     let mut cli_builder
         = CliBuilder::new();
 
-    cli_builder.add_command(CommandSpec {
+    let spec = CommandSpec {
         paths: vec![],
         components: vec![
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::rest()),
         ],
-    });
+    };
 
-    println!("{:?}", cli_builder.compile());
+    cli_builder.add_command(&spec);
 
     let (state, _context)
-        = cli_builder.run(["foo", "bar", "baz"]).unwrap();
+        = cli_builder.run(&["foo", "bar", "baz"]).unwrap();
 
     assert_eq!(state.values(), vec![
         (0, vec!["foo"]),

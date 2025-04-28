@@ -206,8 +206,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
     let mut builder = vec![];
 
-    let mut option_hydrater = vec![];
-    let mut positional_hydrater = vec![];
+    let mut hydraters = vec![];
     
     let mut command_cli_attributes
         = CliAttributes::extract(&mut input.attrs)?;
@@ -308,7 +307,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
             let mut min_len = 1usize;
             let mut extra_len = Some(0usize);
 
-            if let syn::Type::Path(type_path) = &field_type {
+            if let syn::Type::Path(type_path) = &internal_field_type {
                 if &type_path.path.segments[0].ident == "bool" {
                     is_bool = true;
 
@@ -358,12 +357,12 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 None => quote! {None},
             };
 
-            let value_converter = if min_len > 1 {
-                quote! {values.iter().map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).collect::<Result<Vec<_>, _>>()?}
+            let value_converter = if is_vec_type {
+                quote! {args.iter().map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).collect::<Result<Vec<_>, _>>()?}
             } else if is_bool {
-                quote! {true}
+                quote! {Some(true)}
             } else {
-                quote! {values.first().map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).transpose()?}
+                quote! {args.first().map(|s| s.parse().map_err(clipanion::details::handle_parse_error)).transpose()?}
             };
 
             let default_value
@@ -374,7 +373,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                     #field_ident: Vec<#internal_field_type>,
                 });
 
-                option_hydrater.push(quote! {
+                hydraters.push(quote! {
                     partial.#field_ident = #value_converter;
                 });
 
@@ -382,19 +381,9 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                     #field_ident: Vec::new(),
                 });
             } else {
-                partial_struct_members.push(quote! {
-                    #field_ident: Option<#field_type>,
+                hydraters.push(quote! {
+                    partial.#field_ident = #value_converter;
                 });
-
-                if is_option_type {
-                    option_hydrater.push(quote! {
-                        partial.#field_ident = Some(#value_converter);
-                    });
-                } else {
-                    option_hydrater.push(quote! {
-                        partial.#field_ident = Some(#value_converter.unwrap());
-                    });
-                }
 
                 let accessor = match default_value {
                     Some(expr) => quote! { partial.#field_ident.or_else(|| Some(#expr)) },
@@ -402,12 +391,20 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 };
 
                 if is_option_type {
+                    partial_struct_members.push(quote! {
+                        #field_ident: #field_type,
+                    });
+
                     initialization_members.push(quote! {
-                        #field_ident: #accessor.unwrap_or_default(),
+                        #field_ident: #accessor,
                     });
                 } else {
+                    partial_struct_members.push(quote! {
+                        #field_ident: Option<#field_type>,
+                    });
+
                     initialization_members.push(quote! {
-                        #field_ident: #accessor.unwrap(),
+                        #field_ident: #accessor.ok_or_else(|| clipanion::core::CommandError::MissingOptionArguments(#preferred_name_lit.to_string()))?,
                     });
                 }
             }
@@ -436,7 +433,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                     #field_ident: Vec<#internal_field_type>,
                 });
     
-                positional_hydrater.push(quote! {
+                hydraters.push(quote! {
                     let value = args.iter()
                         .map(|arg| arg.parse().map_err(clipanion::details::handle_parse_error))
                         .collect::<Result<Vec<_>, _>>()?;
@@ -462,7 +459,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 });
 
                 if is_option_type {
-                    positional_hydrater.push(quote! {
+                    hydraters.push(quote! {
                         let positional = args.first().unwrap();
 
                         let value = positional.parse()
@@ -471,7 +468,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                         partial.#field_ident = Some(Some(value));
                     });
                 } else {
-                    positional_hydrater.push(quote! {
+                    hydraters.push(quote! {
                         let positional = args.first().unwrap();
 
                         let value = positional.parse()
@@ -520,13 +517,20 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                 Ok(#struct_name::command_spec()?.usage())
             }
 
-            fn command_spec() -> Result<clipanion::core::CommandSpec, clipanion::core::BuildError> {
-                let mut command_spec
-                    = clipanion::core::CommandSpec::default();
+            fn command_spec() -> Result<&'static clipanion::core::CommandSpec, clipanion::core::BuildError> {
+                use std::ops::Deref;
+                use std::sync::LazyLock;
 
-                #(#builder)*
+                static COMMAND_SPEC: LazyLock<Result<clipanion::core::CommandSpec, clipanion::core::BuildError>> = LazyLock::new(|| {
+                    let mut command_spec
+                        = clipanion::core::CommandSpec::default();
 
-                Ok(command_spec)
+                    #(#builder)*
+
+                    Ok(command_spec)
+                });
+
+                COMMAND_SPEC.deref().as_ref().map_err(|e| e.clone())
             }
 
             fn hydrate_command_from_state(environment: &clipanion::advanced::Environment, state: &clipanion::core::State) -> Result<Self, clipanion::core::CommandError> {
@@ -540,7 +544,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
                 let FNS: &[fn(&mut Partial, &[&str]) -> Result<(), clipanion::core::CustomError>] = &[
                     #(|partial, args| {
-                        #positional_hydrater
+                        #hydraters
                         Ok(())
                     }),*
                 ];

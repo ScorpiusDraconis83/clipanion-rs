@@ -41,15 +41,20 @@ impl Default for Environment {
     }
 }
 
-enum PrepareResult<'a> {
+enum PrepareResult<'cmds, 'args> {
     Success,
     Failure,
-    Ready(State<'a>, &'a CommandSpec),
+    Ready(State<'args>, &'cmds CommandSpec),
 }
 
-fn prepare_command<'a, S: CommandProvider>(builder: &'a clipanion_core::CliBuilder, env: &'a Environment) -> PrepareResult<'a> {
+fn prepare_command<'cmds, 'args, S: CommandProvider>(builder: &'cmds clipanion_core::CliBuilder, env: &'args Environment) -> PrepareResult<'cmds, 'args> {
+    let args
+        = env.argv.iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>();
+
     let parse_result
-        = builder.run(env.argv.iter().map(|s| s.as_str()));
+        = builder.run(&args);
 
     let Ok((state, command)) = parse_result else {
         println!("{}", Formatter::<S>::format_parse_error(&env.info, &parse_result.unwrap_err()));

@@ -96,7 +96,7 @@ impl<T: Into<CommandResult>, E: std::fmt::Display> From<Result<T, E>> for Comman
  */
 pub trait CommandController {
     fn command_usage(opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
-    fn command_spec() -> Result<CommandSpec, clipanion_core::BuildError>;
+    fn command_spec() -> Result<&'static CommandSpec, clipanion_core::BuildError>;
     fn hydrate_command_from_state(environment: &Environment, state: &clipanion_core::State) -> Result<Self, clipanion_core::CommandError> where Self: Sized;
 }
 
@@ -106,8 +106,8 @@ pub trait CommandController {
  */
 pub trait CommandProvider {
     fn command_usage(command_index: usize, opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
-    fn parse_args<'a, 'b>(builder: &'a clipanion_core::CliBuilder, environment: &'b Environment) -> Result<Self, clipanion_core::Error<'a>> where Self: Sized;
-    fn build_cli() -> Result<clipanion_core::CliBuilder, clipanion_core::BuildError>;
+    fn parse_args<'cmds>(builder: &clipanion_core::CliBuilder<'cmds>, environment: &Environment) -> Result<Self, clipanion_core::Error<'cmds>> where Self: Sized;
+    fn build_cli() -> Result<clipanion_core::CliBuilder<'static>, clipanion_core::BuildError>;
 }
 
 pub trait CommandExecutor {

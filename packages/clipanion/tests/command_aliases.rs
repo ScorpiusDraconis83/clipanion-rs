@@ -1,6 +1,8 @@
 use clipanion::{advanced::Environment, details::CommandProvider, prelude::*, program, test_cli_success};
 
-#[cli::command(default)]
+#[cli::command]
+#[cli::path("foo")]
+#[cli::path("bar")]
 struct MyCommand {}
 
 impl MyCommand {
@@ -10,5 +12,8 @@ impl MyCommand {
 
 program!(MyCli, [MyCommand]);
 
-test_cli_success!(it_works, MyCli, MyCommand, &[], |_| {
+test_cli_success!(it_works_with_foo, MyCli, MyCommand, &["foo"], |_| {
+});
+
+test_cli_success!(it_works_with_bar, MyCli, MyCommand, &["bar"], |_| {
 });

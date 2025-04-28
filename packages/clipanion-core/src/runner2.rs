@@ -34,20 +34,27 @@ impl<'a, T, TState> DeriveState<'a, TState> for Option<T> where T: DeriveState<'
     }
 }
 
-pub struct Runner<'a, 'b, TCheck, TReducer, TState> {
+pub struct Runner<'machine, 'cmds, TCheck, TReducer, TState> {
+    machine: &'machine Machine<'cmds, TCheck, TReducer>,
+
     states: Vec<TState>,
     next_states: Vec<TState>,
-    machine: &'a Machine<'b, TCheck, TReducer>,
 
     // Colors are used to avoid infinite loops.
     node_colors: Vec<usize>,
     current_color: usize,
 }
 
-impl<'a, 'b, TCheck, TReducer, TState> Runner<'a, 'b, TCheck, TReducer, TState> {
-    pub fn run(machine: &'a Machine<'b, TCheck, TReducer>, args: impl IntoIterator<Item = &'b str>) -> Result<Vec<TState>, ()> where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'b, TState> + Debug, TState: Clone + RunnerState, TState: Default + std::fmt::Debug {
+impl<'machine, 'cmds, TCheck, TReducer, TState> Runner<'machine, 'cmds, TCheck, TReducer, TState> {
+    pub fn run<'args>(machine: &'machine Machine<'cmds, TCheck, TReducer>, args: &[&'args str]) -> Result<Vec<TState>, ()>
+    where
+        TCheck: ValidateTransition<TState>,
+        TReducer: DeriveState<'args, TState> + Debug,
+        TState: Clone + RunnerState,
+        TState: Default + std::fmt::Debug
+    {
         let mut runner
-            = Runner::<'a, 'b, TCheck, TReducer, TState>::new(machine);
+            = Runner::<'machine, 'cmds, TCheck, TReducer, TState>::new(machine);
 
         runner.update(Arg::StartOfInput);
 
@@ -58,15 +65,20 @@ impl<'a, 'b, TCheck, TReducer, TState> Runner<'a, 'b, TCheck, TReducer, TState> 
             state.set_context_id(node.context);
         }
 
-        for arg in args.into_iter() {
-            runner.update(Arg::User(arg.as_ref()));
+        for arg in args {
+            runner.update(Arg::User(arg));
         }
 
         runner.update(Arg::EndOfInput);
         runner.digest()
     }
 
-    pub fn new(machine: &'a Machine<'b, TCheck, TReducer>) -> Self where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'b, TState> + Debug, TState: Clone + RunnerState + Debug + Default {
+    pub fn new<'args>(machine: &'machine Machine<'cmds, TCheck, TReducer>) -> Self
+    where
+        TCheck: ValidateTransition<TState>,
+        TReducer: DeriveState<'args, TState> + Debug,
+        TState: Clone + RunnerState + Debug + Default
+    {
         let mut runner = Runner {
             states: vec![],
             next_states: vec![],
@@ -96,12 +108,12 @@ impl<'a, 'b, TCheck, TReducer, TState> Runner<'a, 'b, TCheck, TReducer, TState> 
         runner
     }
 
-    fn transition_to(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'b>) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'b, TState> + Debug, TState: Clone + RunnerState + Debug {
+    fn transition_to<'args>(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'args>) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'args, TState> + Debug, TState: Clone + RunnerState + Debug {
         self.current_color = self.current_color.wrapping_add(1);
         self.transition_to_color(from_state, transition, token, self.current_color);
     }
 
-    fn transition_to_color(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'b>, color: usize) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'b, TState> + Debug, TState: Clone + RunnerState + Debug {
+    fn transition_to_color<'args>(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'args>, color: usize) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'args, TState> + Debug, TState: Clone + RunnerState + Debug {
         let mut next_state
             = from_state.clone();
 
@@ -125,7 +137,7 @@ impl<'a, 'b, TCheck, TReducer, TState> Runner<'a, 'b, TCheck, TReducer, TState> 
         self.next_states.push(next_state);
     }
 
-    pub fn update(&mut self, token: Arg<'b>) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'b, TState> + Debug, TState: Clone + RunnerState + Debug {
+    pub fn update<'args>(&mut self, token: Arg<'args>) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'args, TState> + Debug, TState: Clone + RunnerState + Debug {
         let mut states
             = std::mem::take(&mut self.states);
 

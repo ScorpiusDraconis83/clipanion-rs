@@ -1,4 +1,4 @@
-use std::{process::ExitCode, str::FromStr};
+use std::{ops::Deref, process::ExitCode, str::FromStr};
 
 use clipanion::prelude::*;
 
@@ -79,6 +79,17 @@ impl Ssh {
     pub fn execute(&self) {
         println!("{:?}", self);
     }
+}
+
+struct Foo {}
+
+fn foo() {
+    use std::sync::LazyLock;
+    static COMMAND_SPEC: LazyLock<Foo> = LazyLock::new(|| {
+        Foo {}
+    });
+
+    let x = COMMAND_SPEC.deref();
 }
 
 #[cli::command]

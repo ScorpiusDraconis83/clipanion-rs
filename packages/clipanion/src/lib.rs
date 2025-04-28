@@ -34,9 +34,14 @@ macro_rules! program_provider {
                 FNS[command_index](opts)
             }
 
-            fn parse_args<'a, 'b>(builder: &'a $crate::core::CliBuilder, environment: &'b $crate::advanced::Environment) -> Result<$name, $crate::core::Error<'a>> {
+            fn parse_args<'cmds>(builder: &$crate::core::CliBuilder<'cmds>, environment: &$crate::advanced::Environment) -> Result<$name, $crate::core::Error<'cmds>> {
+                let argv
+                    = environment.argv.iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>();
+
                 let (state, command_spec)
-                    = builder.run(environment.argv.iter().map(|s| s.as_str()))?;
+                    = builder.run(&argv)?;
 
                 const FNS: &[fn(&$crate::advanced::Environment, &$crate::core::State<'_>) -> Result<$name, $crate::core::CommandError>] = &[
                     $(|environment, state| {
@@ -55,7 +60,7 @@ macro_rules! program_provider {
                 Ok(result)
             }
 
-            fn build_cli() -> Result<$crate::core::CliBuilder, $crate::core::BuildError> {
+            fn build_cli() -> Result<$crate::core::CliBuilder<'static>, $crate::core::BuildError> {
                 use $crate::details::CommandController;
 
                 let mut builder
@@ -163,11 +168,44 @@ macro_rules! program_async {
 }
 
 #[macro_export]
-macro_rules! test_program {
-    ($name:ident, [$($command:ty),* $(,)?]) => {
+macro_rules! test_cli_success {
+    ($test_name:ident, $cli_name:ident, $command_name:ident, $args:expr, $fn:expr) => {
         #[test]
-        fn it_works() {
-            $name::run(Environment::default().with_argv(vec!["foo".to_string()]));
+        fn $test_name() {
+            const ARGS: &[&str] = $args;
+
+            let cli = $cli_name::build_cli().unwrap();
+            let env = Environment::default().with_argv(ARGS.iter().map(|s| s.to_string()).collect());
+
+            let result = $cli_name::parse_args(&cli, &env);
+            let f: fn($command_name) -> () = $fn;
+
+            f(match result {
+                Ok($cli_name::$command_name(command)) => command,
+                Ok(_) => panic!("expected $command_name"),
+                Err(error) => panic!("expected command, got error: {}", error),
+            });
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! test_cli_failure {
+    ($test_name:ident, $cli_name:ident, $command_name:ident, $args:expr, $fn:expr) => {
+        #[test]
+        fn $test_name() {
+            const ARGS: &[&str] = $args;
+
+            let cli = $cli_name::build_cli().unwrap();
+            let env = Environment::default().with_argv(ARGS.iter().map(|s| s.to_string()).collect());
+
+            let result = $cli_name::parse_args(&cli, &env);
+            let f: fn($crate::core::Error<'_>) -> () = $fn;
+
+            f(match result {
+                Err(error) => error,
+                Ok(_) => panic!("expected error"),
+            });
         }
     };
 }
