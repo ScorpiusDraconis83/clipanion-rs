@@ -1,6 +1,7 @@
-pub use clipanion_core as core;
+pub extern crate clipanion_derive;
 
-extern crate clipanion_derive;
+pub use clipanion_core as core;
+pub use clipanion_derive as derive;
 
 pub mod cli {
     pub use clipanion_derive::command;
@@ -20,17 +21,17 @@ pub use clipanion_core::{
 
 #[macro_export]
 macro_rules! program_enum {
-    ($name:ident, [$($command:ident),* $(,)?]) => {
-        pub enum $name {
+    ($name:ident, [$($command:ty),* $(,)?]) => {
+        #[clipanion::derive::cli_enum($($command),*)]
+        enum $name {
             Builtin($crate::core::BuiltinCommand<'static>),
-            $($command($command),)*
         }
     }
 }
 
 #[macro_export]
 macro_rules! program_provider {
-    ($name:ident, [$($command:ident),* $(,)?]) => {
+    ($name:ident, [$($command:ty),* $(,)?]) => {
         impl $crate::details::CommandProvider for $name {
             fn command_usage(command_index: usize, opts: $crate::core::CommandUsageOptions) -> Result<$crate::core::CommandUsageResult, $crate::core::BuildError> {
                 use $crate::details::CommandController;
@@ -68,7 +69,7 @@ macro_rules! program_provider {
                         let command
                             = <$command>::hydrate_command_from_state(environment, state)?;
 
-                        Ok($name::$command(command))
+                        Ok(command.into())
                     }),*
                 ];
 
@@ -94,7 +95,7 @@ macro_rules! program_provider {
 
 #[macro_export]
 macro_rules! program_executor {
-    ($name:ident, [$($command:ident),* $(,)?]) => {
+    ($name:ident, [$($command:ty),* $(,)?]) => {
         impl $crate::details::CommandExecutor for $name {
             fn execute_cli_state(environment: &$crate::advanced::Environment, state: $crate::core::State) -> $crate::details::CommandResult {
                 use $crate::details::CommandController;
@@ -130,7 +131,7 @@ macro_rules! program_executor {
         }
     };
 
-    ($name:ident, [$($command:ident),* $(,)?], async) => {
+    ($name:ident, [$($command:ty),* $(,)?], async) => {
         impl $crate::details::CommandExecutorAsync for $name {
             async fn execute_cli_state<'args>(environment: &$crate::advanced::Environment, state: $crate::core::State<'args>) -> $crate::details::CommandResult {
                 use $crate::details::CommandController;
@@ -169,7 +170,7 @@ macro_rules! program_executor {
 
 #[macro_export]
 macro_rules! program_block {
-    {$name:ident, [$($command:ident),* $(,)?]} => {
+    {$name:ident, [$($command:ty),* $(,)?]} => {
         $crate::program_enum!($name, [$($command),*]);
         $crate::program_provider!($name, [$($command),*]);
         $crate::program_executor!($name, [$($command),*]);
@@ -178,7 +179,7 @@ macro_rules! program_block {
 
 #[macro_export]
 macro_rules! program {
-    ($name:ident, [$($command:ident),* $(,)?]) => {
+    ($name:ident, [$($command:ty),* $(,)?]) => {
         $crate::program_enum!($name, [$($command),*]);
         $crate::program_provider!($name, [$($command),*]);
         $crate::program_executor!($name, [$($command),*]);
@@ -187,7 +188,7 @@ macro_rules! program {
 
 #[macro_export]
 macro_rules! program_async {
-    ($name:ident, [$($command:ident),* $(,)?]) => {
+    ($name:ident, [$($command:ty),* $(,)?]) => {
         $crate::program_enum!($name, [$($command),*]);
         $crate::program_provider!($name, [$($command),*]);
         $crate::program_executor!($name, [$($command),*], async);
@@ -196,7 +197,7 @@ macro_rules! program_async {
 
 #[macro_export]
 macro_rules! test_cli_success {
-    ($test_name:ident, $cli_name:ident, $command_name:ident, $args:expr, $fn:expr) => {
+    ($test_name:ident, $cli_name:ident, $command_name:ty, $args:expr, $fn:expr) => {
         #[test]
         fn $test_name() {
             const ARGS: &[&str] = $args;
@@ -209,18 +210,17 @@ macro_rules! test_cli_success {
             let result = $cli_name::parse_args(&cli, &env);
             let f: fn($command_name) -> () = $fn;
 
-            f(match result {
-                Ok($cli_name::$command_name(command)) => command,
-                Ok(_) => panic!("expected $command_name"),
-                Err(error) => panic!("expected command, got error: {}", error),
-            });
+            let result = result
+                .expect("expected command, got error");
+
+            f(result.into());
         }
     };
 }
 
 #[macro_export]
 macro_rules! test_cli_failure {
-    ($test_name:ident, $cli_name:ident, $command_name:ident, $args:expr, $fn:expr) => {
+    ($test_name:ident, $cli_name:ident, $command_name:ty, $args:expr, $fn:expr) => {
         #[test]
         fn $test_name() {
             const ARGS: &[&str] = $args;

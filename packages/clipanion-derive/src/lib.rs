@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{parse::{Parse, ParseStream}, parse_macro_input, punctuated::Punctuated, Attribute, DeriveInput, Expr, ExprLit, Fields, Ident, Lit, LitBool, LitStr, Meta, Path, Token};
 
 macro_rules! expect_lit {
@@ -619,4 +619,75 @@ pub fn command(args: TokenStream, input: TokenStream) -> TokenStream {
         Ok(token_stream) => token_stream,
         Err(err) => err.to_compile_error().into(),
     }
+}
+
+#[proc_macro_attribute]
+pub fn cli_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let types: Punctuated<syn::Path, syn::Token![,]> =
+        parse_macro_input!(attr with Punctuated::parse_terminated);
+
+    let mut enum_item: syn::ItemEnum = parse_macro_input!(item as syn::ItemEnum);
+
+    let enum_ident = &enum_item.ident;
+    let enum_generics = &enum_item.generics;
+
+    let mut variant_impls = Vec::new();
+    let mut reverse_impls = Vec::new();
+
+    for (i, ty) in types.iter().enumerate() {
+        let variant_ident = format_ident!("_Variant{}", i + 1);
+
+        let variant = syn::Variant {
+            ident: variant_ident.clone(),
+            fields: syn::Fields::Unnamed(syn::FieldsUnnamed {
+                paren_token: Default::default(),
+                unnamed: {
+                    let mut fields = Punctuated::new();
+                    fields.push(syn::Field {
+                        attrs: vec![],
+                        vis: syn::Visibility::Inherited,
+                        ident: None,
+                        colon_token: None,
+                        ty: syn::Type::Path(syn::TypePath { qself: None, path: ty.clone() }),
+                        mutability: syn::FieldMutability::None,
+                    });
+                    fields
+                },
+            }),
+            attrs: vec![],
+            discriminant: None,
+        };
+
+        enum_item.variants.push(variant);
+
+        // From<T> for Enum
+        variant_impls.push(quote! {
+            impl #enum_generics ::core::convert::From<#ty> for #enum_ident #enum_generics {
+                fn from(value: #ty) -> Self {
+                    #enum_ident::#variant_ident(value)
+                }
+            }
+        });
+
+        // From<Enum> for T
+        reverse_impls.push(quote! {
+            impl #enum_generics ::core::convert::From<#enum_ident #enum_generics> for #ty {
+                fn from(value: #enum_ident #enum_generics) -> Self {
+                    match value {
+                        #enum_ident::#variant_ident(inner) => inner,
+                        _ => panic!(concat!("Cannot convert from ", stringify!(#enum_ident), " to ", stringify!(#ty))),
+                    }
+                }
+            }
+        });
+    }
+
+    let expanded = quote! {
+        #enum_item
+
+        #(#variant_impls)*
+        #(#reverse_impls)*
+    };
+
+    TokenStream::from(expanded)
 }
