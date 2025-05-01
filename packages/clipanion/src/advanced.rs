@@ -1,8 +1,8 @@
 use std::future::Future;
 
-use clipanion_core::{CommandSpec, Info, State};
+use clipanion_core::Info;
 
-use crate::{details::{CommandExecutor, CommandExecutorAsync, CommandProvider, CommandResult}, format::Formatter};
+use crate::{details::{CommandExecutor, CommandExecutorAsync, CommandProvider}, format::Formatter};
 
 /**
  * Used to define the properties of the CLI. In general you can ignore this and

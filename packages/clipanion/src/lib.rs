@@ -168,6 +168,15 @@ macro_rules! program_executor {
 }
 
 #[macro_export]
+macro_rules! program_block {
+    {$name:ident, [$($command:ident),* $(,)?]} => {
+        $crate::program_enum!($name, [$($command),*]);
+        $crate::program_provider!($name, [$($command),*]);
+        $crate::program_executor!($name, [$($command),*]);
+    };
+}
+
+#[macro_export]
 macro_rules! program {
     ($name:ident, [$($command:ident),* $(,)?]) => {
         $crate::program_enum!($name, [$($command),*]);
@@ -194,6 +203,8 @@ macro_rules! test_cli_success {
 
             let cli = $cli_name::build_cli().unwrap();
             let env = $crate::advanced::Environment::default().with_argv(ARGS.iter().map(|s| s.to_string()).collect());
+
+            println!("cli: {:?}", cli.compile());
 
             let result = $cli_name::parse_args(&cli, &env);
             let f: fn($command_name) -> () = $fn;

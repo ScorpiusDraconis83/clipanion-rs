@@ -10,7 +10,7 @@ pub struct Formatter<S> {
 }
 
 impl<S: CommandProvider> Formatter<S> {
-    pub fn format_error<'a>(info: &Info, err_type: &str, err: &impl Display, command_specs: impl IntoIterator<Item = &'a CommandSpec>) -> String {
+    pub fn format_error<'cmds>(info: &Info, err_type: &str, err: &impl Display, command_specs: impl IntoIterator<Item = &'cmds CommandSpec>) -> String {
         let mut result = String::new();
     
         result += &match info.colorized {

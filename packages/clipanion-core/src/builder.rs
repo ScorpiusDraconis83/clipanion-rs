@@ -2,7 +2,7 @@ use std::{fmt::Display, iter::once};
 
 use itertools::Itertools;
 
-use crate::{machine, runner::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageResult, Error};
+use crate::{machine, runner::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageResult, Error};
 
 /**
  */
@@ -43,6 +43,8 @@ pub struct State<'args> {
     pub path: Vec<&'args str>,
     pub positional_values: Vec<(usize, Vec<&'args str>)>,
     pub option_values: Vec<(usize, Vec<&'args str>)>,
+    pub post_double_slash: bool,
+    pub is_help: bool,
 }
 
 impl<'args> State<'args> {
@@ -67,10 +69,33 @@ pub trait SelectBestState<'args> {
 }
 
 impl<'args> SelectBestState<'args> for Vec<State<'args>> {
-    fn select_best_state<'cmds>(self, _commands: &Vec<&'cmds CommandSpec>) -> Result<State<'args>, Error<'cmds>> {
-        let mut all_states = self;
+    fn select_best_state<'cmds>(self, commands: &Vec<&'cmds CommandSpec>) -> Result<State<'args>, Error<'cmds>> {
+        let mut terminal_states = self;
 
-        let highest_keyword_count = all_states.iter()
+        terminal_states.retain(|state| {
+            state.node_id == SUCCESS_NODE_ID
+        });
+
+        if terminal_states.is_empty() {
+            return Err(Error::NotFound(vec![]));
+        }
+
+        let mut required_option_set_states = terminal_states.iter()
+            .filter(|state| {
+                commands[state.context_id].required_options.iter().all(|option_id| {
+                    state.option_values.iter().any(|(id, _)| {
+                        *id == *option_id
+                    })
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if required_option_set_states.is_empty() {
+            return Err(Error::NotFound(vec![]));
+        }
+
+        let highest_keyword_count = required_option_set_states.iter()
             .map(|state| state.keyword_count)
             .max();
 
@@ -78,15 +103,15 @@ impl<'args> SelectBestState<'args> for Vec<State<'args>> {
             return Err(Error::NotFound(vec![]));
         };
 
-        all_states.retain(|state| {
+        required_option_set_states.retain(|state| {
             state.keyword_count == highest_keyword_count
         });
 
-        let state
-            = all_states.pop()
-                .ok_or(Error::NotFound(vec![]))?;
+        if required_option_set_states.len() > 1 {
+            return Err(Error::AmbiguousSyntax(required_option_set_states.iter().map(|state| commands[state.context_id]).collect()));
+        }
 
-        Ok(state)
+        Ok(required_option_set_states.pop().unwrap())
     }
 }
 
@@ -109,20 +134,25 @@ impl<'args> RunnerState for State<'args> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Check {
+pub enum Check<'cmds> {
+    IsOption(&'cmds str),
     IsOptionLike,
     IsNotOptionLike,
 }
 
-impl<'args> ValidateTransition<State<'args>> for Check {
-    fn check(&self, _state: &State<'args>, arg: &str) -> bool {
+impl<'cmds, 'args> ValidateTransition<'args, State<'args>> for Check<'cmds> {
+    fn check(&self, state: &State<'args>, arg: &'args str) -> bool {
         match self {
-            Check::IsOptionLike => {
-                arg.starts_with("-")
+            Check::IsOption(name) => {
+                !state.post_double_slash && arg == *name
             },
-            
+
+            Check::IsOptionLike => {
+                !state.post_double_slash && arg.starts_with("-") && arg != "--"
+            },
+
             Check::IsNotOptionLike => {
-                !arg.starts_with("-")
+                state.post_double_slash || !arg.starts_with("-")
             },
         }
     }
@@ -136,6 +166,8 @@ pub enum Attachment {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reducer {
+    EnableDoubleSlash,
+    EnableHelp,
     IncreaseStaticCount,
     StartValue(Attachment, usize),
     PushValue(Attachment),
@@ -144,6 +176,14 @@ pub enum Reducer {
 impl<'args> DeriveState<'args, State<'args>> for Reducer {
     fn derive(&self, state: &mut State<'args>, _target_id: usize, token: &'args str) -> () {
         match self {
+            Reducer::EnableHelp => {
+                state.is_help = true;
+            },
+
+            Reducer::EnableDoubleSlash => {
+                state.post_double_slash = true;
+            },
+
             Reducer::IncreaseStaticCount => {
                 state.keyword_count += 1;
             },
@@ -180,7 +220,7 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
 }
 
 type Machine<'cmds>
-    = machine::Machine<'cmds, Option<Check>, Option<Reducer>>;
+    = machine::Machine<'cmds, Option<Check<'cmds>>, Option<Reducer>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PositionalSpec {
@@ -194,6 +234,8 @@ pub enum PositionalSpec {
 
         min_len: usize,
         extra_len: Option<usize>,
+
+        is_proxy: bool,
     },
 }
 
@@ -263,6 +305,8 @@ impl PositionalSpec {
 
             min_len: 0,
             extra_len: Some(1),
+
+            is_proxy: false,
         }
     }
 
@@ -273,6 +317,8 @@ impl PositionalSpec {
             
             min_len: 1,
             extra_len: Some(0),
+
+            is_proxy: false,
         }
     }
 
@@ -283,6 +329,20 @@ impl PositionalSpec {
 
             min_len: 0,
             extra_len: None,
+
+            is_proxy: false,
+        }
+    }
+
+    pub fn proxy() -> Self {
+        PositionalSpec::Dynamic {
+            name: "".to_string(),
+            description: "".to_string(),
+            
+            min_len: 0,
+            extra_len: None,
+
+            is_proxy: true,
         }
     }
 }
@@ -376,10 +436,12 @@ impl std::fmt::Display for Component {
         }
     }
 }
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CommandSpec {
     pub paths: Vec<Vec<String>>,
     pub components: Vec<Component>,
+    pub required_options: Vec<usize>,
 }
 
 impl std::fmt::Display for CommandSpec {
@@ -403,6 +465,7 @@ pub struct CommandBuilderContext<'cmds> {
     machine: Machine<'cmds>,
     spec: &'cmds CommandSpec,
     inhibit_options: usize,
+    proxy_options: usize,
 }
 
 impl<'cmds> CommandBuilderContext<'cmds> {
@@ -411,6 +474,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             machine: Machine::new(command_id),
             spec,
             inhibit_options: 0,
+            proxy_options: 0,
         }
     }
 
@@ -422,8 +486,24 @@ impl<'cmds> CommandBuilderContext<'cmds> {
         self.inhibit_options -= 1;
     }
 
+    fn enter_proxy_options(&mut self) {
+        self.proxy_options += 1;
+    }
+
+    fn exit_proxy_options(&mut self) {
+        self.proxy_options -= 1;
+    }
+
+    fn get_positional_check(&self) -> Option<Check<'cmds>> {
+        if self.proxy_options > 0 {
+            None
+        } else {
+            Some(Check::IsNotOptionLike)
+        }
+    }
+
     fn attach_options(&mut self, pre_options_node_id: usize) -> usize {
-        if self.inhibit_options > 0 {
+        if self.inhibit_options > 0 || self.proxy_options > 0 {
             return pre_options_node_id;
         }
 
@@ -433,6 +513,13 @@ impl<'cmds> CommandBuilderContext<'cmds> {
         self.machine.register_shortcut(
             pre_options_node_id,
             post_options_node_id,
+        );
+
+        self.machine.register_dynamic(
+            pre_options_node_id,
+            Some(Check::IsOption("--")),
+            pre_options_node_id,
+            Some(Reducer::EnableDoubleSlash),
         );
 
         let options = self.spec.components.iter()
@@ -451,9 +538,9 @@ impl<'cmds> CommandBuilderContext<'cmds> {
                 let mut post_option_node_id
                     = self.machine.create_node();
 
-                self.machine.register_static(
+                self.machine.register_dynamic(
                     pre_options_node_id,
-                    Arg::User(name),
+                    Some(Check::IsOption(name)),
                     post_option_node_id,
                     Some(Reducer::StartValue(Attachment::Option, option_id)),
                 );
@@ -486,14 +573,22 @@ impl<'cmds> CommandBuilderContext<'cmds> {
     }
 
     fn attach_optional(&mut self, pre_node_id: usize, reducer: Reducer) -> usize {
+        let options_node_id
+            = self.machine.create_node();
+
         let next_node_id
             = self.machine.create_node();
 
         self.machine.register_dynamic(
             pre_node_id,
-            Some(Check::IsNotOptionLike),
-            next_node_id,
+            self.get_positional_check(),
+            options_node_id,
             Some(reducer),
+        );
+
+        self.machine.register_shortcut(
+            options_node_id,
+            next_node_id,
         );
 
         self.machine.register_shortcut(
@@ -501,7 +596,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             next_node_id,
         );
 
-        self.attach_options(next_node_id)
+        self.attach_options(options_node_id)
     }
 
     fn attach_required(&mut self, pre_node_id: usize, reducer: Reducer) -> usize {
@@ -510,7 +605,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
 
         self.machine.register_dynamic(
             pre_node_id,
-            Some(Check::IsNotOptionLike),
+            self.get_positional_check(),
             next_node_id,
             Some(reducer),
         );
@@ -557,7 +652,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
 
                 self.machine.register_dynamic(
                     next_node_id,
-                    Some(Check::IsNotOptionLike),
+                    self.get_positional_check(),
                     next_node_id,
                     Some(next_action),
                 );
@@ -638,7 +733,11 @@ impl<'cmds> CommandBuilderContext<'cmds> {
                         = self.attach_options(next_node_id);
                 },
 
-                PositionalSpec::Dynamic {min_len, extra_len, ..} => {
+                PositionalSpec::Dynamic {min_len, extra_len, is_proxy, ..} => {
+                    if *is_proxy {
+                        self.enter_proxy_options();
+                    }
+
                     current_node_id = self.attach_variadic(
                         current_node_id,
                         *min_len,
@@ -646,6 +745,10 @@ impl<'cmds> CommandBuilderContext<'cmds> {
                         Reducer::StartValue(Attachment::Positional, id),
                         Reducer::PushValue(Attachment::Positional),
                     );
+
+                    if *is_proxy {
+                        self.exit_proxy_options();
+                    }
                 },
             }
         }
@@ -679,7 +782,7 @@ impl<'cmds> CliBuilder<'cmds> {
     }
 
     pub fn compile(&self) -> Machine {
-        let command_machines
+        let command_machines: Vec<Machine<'cmds>>
             = self.commands.iter()
                 .enumerate()
                 .map(|(command_id, &command)| command.build(command_id))
@@ -697,11 +800,22 @@ impl<'cmds> CliBuilder<'cmds> {
             return Ok(ParseResult::Builtin(BuiltinCommand::Help(None)));
         }
 
+        fn on_error<'args>(mut state: State<'args>, arg: Arg<'args>) -> State<'args> {
+            if arg == Arg::User("-h") || arg == Arg::User("--help") || state.is_help {
+                state.is_help = true;
+                state.set_node_id(SUCCESS_NODE_ID);
+            } else {
+                state.set_node_id(ERROR_NODE_ID);
+            }
+
+            state
+        }
+
         let machine
             = self.compile();
 
         let state: Vec<State<'args>>
-            = runner::Runner::run(&machine, args).unwrap();
+            = runner::Runner::run(&machine, on_error, args).unwrap();
         
         let best_state = state
             .select_best_state(&self.commands)?;
@@ -721,6 +835,7 @@ fn it_should_select_the_default_command_when_using_no_arguments() {
     let spec = CommandSpec {
         paths: vec![],
         components: vec![],
+        required_options: vec![],
     };
 
     cli_builder.add_command(&spec);
@@ -746,6 +861,7 @@ fn it_should_select_the_default_command_when_using_mandatory_positional_argument
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::required()),
         ],
+        required_options: vec![],
     };
 
     cli_builder.add_command(&spec);
@@ -768,6 +884,7 @@ fn it_should_select_commands_by_their_path() {
     let spec = CommandSpec {
         paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
+        required_options: vec![],
     };
 
     cli_builder.add_command(&spec);
@@ -799,6 +916,7 @@ fn it_should_favor_paths_over_mandatory_positional_arguments() {
     let spec = CommandSpec {
         paths: vec![],
         components: vec![Component::Positional(PositionalSpec::required())],
+        required_options: vec![],
     };
 
     cli_builder.add_command(&spec);
@@ -821,11 +939,13 @@ fn it_should_favor_paths_over_optional_positional_arguments() {
     let spec1 = CommandSpec {
         paths: vec![],
         components: vec![Component::Positional(PositionalSpec::optional())],
+        required_options: vec![],
     };
 
     let spec2 = CommandSpec {
         paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
+        required_options: vec![],
     };
 
     cli_builder.add_command(&spec1);
@@ -852,6 +972,7 @@ fn it_should_aggregate_positional_values() {
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::required()),
         ],
+        required_options: vec![],
     };
 
     cli_builder.add_command(&spec);
@@ -880,6 +1001,7 @@ fn it_should_aggregate_positional_values_with_rest() {
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::rest()),
         ],
+        required_options: vec![],
     };
 
     cli_builder.add_command(&spec);

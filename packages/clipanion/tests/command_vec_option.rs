@@ -14,5 +14,5 @@ impl MyCommand {
 program!(MyCli, [MyCommand]);
 
 test_cli_success!(it_works, MyCli, MyCommand, &["--my-option", "foo", "--my-option", "baz"], |command| {
-    assert_eq!(command.my_option, vec!["foo".to_string(), "baz".to_string()]);
+    assert_eq!(command.my_option, vec!["foo", "baz"]);
 });

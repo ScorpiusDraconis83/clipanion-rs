@@ -490,6 +490,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                         description: "".to_string(),
                         min_len: 0,
                         extra_len: None,
+                        is_proxy: #is_proxy,
                     }));
                 });
             } else {
@@ -532,6 +533,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
                         description: "".to_string(),
                         min_len: #min_len,
                         extra_len: #extra_len,
+                        is_proxy: false,
                     }));
                 });
             }

@@ -1,5 +1,7 @@
 use std::fmt::Debug;
 
+use itertools::Itertools;
+
 use crate::{shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID}, transition::Transition, Machine};
 
 pub trait RunnerState {
@@ -10,22 +12,22 @@ pub trait RunnerState {
     fn set_node_id(&mut self, node_id: usize);
 }
 
-pub trait ValidateTransition<TState> {
-    fn check(&self, state: &TState, arg: &str) -> bool;
+pub trait ValidateTransition<'args, TState> {
+    fn check(&self, state: &TState, arg: &'args str) -> bool;
 }
 
-impl<T, TState> ValidateTransition<TState> for Option<T> where T: ValidateTransition<TState> {
-    fn check(&self, state: &TState, arg: &str) -> bool {
+impl<'args, T, TState> ValidateTransition<'args, TState> for Option<T> where T: ValidateTransition<'args, TState> {
+    fn check(&self, state: &TState, arg: &'args str) -> bool {
         self.as_ref().map_or(true, |reducer| reducer.check(state, arg))
     }
 }
 
-pub trait DeriveState<'a, TState> {
-    fn derive(&self, state: &mut TState, target_id: usize, arg: &'a str) -> () where TState: RunnerState;
+pub trait DeriveState<'args, TState> {
+    fn derive(&self, state: &mut TState, target_id: usize, arg: &'args str) -> () where TState: RunnerState;
 }
 
-impl<'a, T, TState> DeriveState<'a, TState> for Option<T> where T: DeriveState<'a, TState> {
-    fn derive(&self, state: &mut TState, target_id: usize, arg: &'a str) -> () where TState: RunnerState {
+impl<'args, T, TState> DeriveState<'args, TState> for Option<T> where T: DeriveState<'args, TState> {
+    fn derive(&self, state: &mut TState, target_id: usize, arg: &'args str) -> () where TState: RunnerState {
         if let Some(reducer) = self {
             reducer.derive(state, target_id, arg)
         }
@@ -34,8 +36,9 @@ impl<'a, T, TState> DeriveState<'a, TState> for Option<T> where T: DeriveState<'
     }
 }
 
-pub struct Runner<'machine, 'cmds, TCheck, TReducer, TState> {
+pub struct Runner<'machine, 'cmds, TCheck, TReducer, TFallback, TState> {
     machine: &'machine Machine<'cmds, TCheck, TReducer>,
+    fallback: TFallback,
 
     states: Vec<TState>,
     next_states: Vec<TState>,
@@ -45,16 +48,17 @@ pub struct Runner<'machine, 'cmds, TCheck, TReducer, TState> {
     current_color: usize,
 }
 
-impl<'machine, 'cmds, TCheck, TReducer, TState> Runner<'machine, 'cmds, TCheck, TReducer, TState> {
-    pub fn run<'args>(machine: &'machine Machine<'cmds, TCheck, TReducer>, args: &[&'args str]) -> Result<Vec<TState>, ()>
+impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmds, TCheck, TReducer, TFallback, TState> {
+    pub fn run<'args>(machine: &'machine Machine<'cmds, TCheck, TReducer>, fallback: TFallback, args: &[&'args str]) -> Result<Vec<TState>, ()>
     where
-        TCheck: ValidateTransition<TState>,
+        TCheck: ValidateTransition<'args, TState>,
         TReducer: DeriveState<'args, TState> + Debug,
+        TFallback: Fn(TState, Arg<'args>) -> TState,
         TState: Clone + RunnerState,
         TState: Default + std::fmt::Debug
     {
         let mut runner
-            = Runner::<'machine, 'cmds, TCheck, TReducer, TState>::new(machine);
+            = Runner::<'machine, 'cmds, TCheck, TReducer, TFallback, TState>::new(machine, fallback);
 
         runner.update(Arg::StartOfInput);
 
@@ -73,9 +77,9 @@ impl<'machine, 'cmds, TCheck, TReducer, TState> Runner<'machine, 'cmds, TCheck, 
         runner.digest()
     }
 
-    pub fn new<'args>(machine: &'machine Machine<'cmds, TCheck, TReducer>) -> Self
+    pub fn new<'args>(machine: &'machine Machine<'cmds, TCheck, TReducer>, fallback: TFallback) -> Self
     where
-        TCheck: ValidateTransition<TState>,
+        TCheck: ValidateTransition<'args, TState>,
         TReducer: DeriveState<'args, TState> + Debug,
         TState: Clone + RunnerState + Debug + Default
     {
@@ -83,6 +87,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TState> Runner<'machine, 'cmds, TCheck, 
             states: vec![],
             next_states: vec![],
             machine,
+            fallback,
             node_colors: vec![0; machine.nodes.len()],
             current_color: 0,
         };
@@ -108,12 +113,22 @@ impl<'machine, 'cmds, TCheck, TReducer, TState> Runner<'machine, 'cmds, TCheck, 
         runner
     }
 
-    fn transition_to<'args>(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'args>) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'args, TState> + Debug, TState: Clone + RunnerState + Debug {
+    fn transition_to<'args>(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'args>) -> ()
+    where
+        TCheck: ValidateTransition<'args, TState>,
+        TReducer: DeriveState<'args, TState> + Debug,
+        TState: Clone + RunnerState + Debug
+    {
         self.current_color = self.current_color.wrapping_add(1);
         self.transition_to_color(from_state, transition, token, self.current_color);
     }
 
-    fn transition_to_color<'args>(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'args>, color: usize) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'args, TState> + Debug, TState: Clone + RunnerState + Debug {
+    fn transition_to_color<'args>(&mut self, from_state: &TState, transition: &Transition<TReducer>, token: Arg<'args>, color: usize) -> ()
+    where
+        TCheck: ValidateTransition<'args, TState>,
+        TReducer: DeriveState<'args, TState> + Debug,
+        TState: Clone + RunnerState + Debug
+    {
         let mut next_state
             = from_state.clone();
 
@@ -137,7 +152,13 @@ impl<'machine, 'cmds, TCheck, TReducer, TState> Runner<'machine, 'cmds, TCheck, 
         self.next_states.push(next_state);
     }
 
-    pub fn update<'args>(&mut self, token: Arg<'args>) -> () where TCheck: ValidateTransition<TState>, TReducer: DeriveState<'args, TState> + Debug, TState: Clone + RunnerState + Debug {
+    pub fn update<'args>(&mut self, token: Arg<'args>) -> ()
+    where
+        TCheck: ValidateTransition<'args, TState>,
+        TReducer: DeriveState<'args, TState> + Debug,
+        TFallback: Fn(TState, Arg<'args>) -> TState,
+        TState: Clone + RunnerState + Debug
+    {
         let mut states
             = std::mem::take(&mut self.states);
 
@@ -169,9 +190,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TState> Runner<'machine, 'cmds, TCheck, 
             }
 
             if !transitioned {
-                let mut next_state = state.clone();
-                next_state.set_node_id(ERROR_NODE_ID);
-                self.next_states.push(next_state);
+                self.next_states.push((self.fallback)(state.clone(), token));
             }
         }
 
@@ -180,7 +199,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TState> Runner<'machine, 'cmds, TCheck, 
         });
 
         if self.next_states.is_empty() {
-            println!("no next states due to {:?}", token);
+            println!("no next states due to {:?} (was in {:?})", token, states.iter().map(|state| state.get_node_id()).join(", "));
         }
 
         std::mem::swap(&mut self.states, &mut states);

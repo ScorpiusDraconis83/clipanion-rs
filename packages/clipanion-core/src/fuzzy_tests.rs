@@ -1,8 +1,8 @@
-use std::{collections::BTreeMap, iter::once, ops::Range};
+use std::{iter::once, ops::Range};
 
 use itertools::Itertools;
-use rand::{rand_core::le, seq::{IteratorRandom, SliceRandom}, Rng, RngCore};
-use rand_seeder::{Seeder, SipHasher};
+use rand::Rng;
+use rand_seeder::SipHasher;
 
 use crate::{builder::{CliBuilder, CommandSpec, Component, OptionSpec, PositionalSpec}, ParseResult};
 
@@ -58,6 +58,7 @@ fn gen_random_positional_spec<R: Rng>(rng: &mut R) -> PositionalSpec {
             description: "".to_string(),
             min_len: rng.random_range(0..3),
             extra_len: gen_optional(rng, |rng| rng.random_range(0..3)),
+            is_proxy: false,
         },
 
         _ => unreachable!(),
@@ -91,6 +92,7 @@ fn gen_random_command_spec<R: Rng>(rng: &mut R) -> CommandSpec {
     CommandSpec {
         paths: vec![],
         components,
+        required_options: vec![],
     }
 }
 
