@@ -257,7 +257,7 @@ fn test_gen_random_command_line() {
                 let command_line
                     = gen_random_command_line(&mut rng, &command_spec, &command_values);
 
-                if selected_test.as_ref().map(|state| &vec![n1, n2, n3] >= state).unwrap_or(false) {
+                if selected_test.as_ref().map(|state| &vec![n1, n2, n3] != state).unwrap_or(false) {
                     continue;
                 }
 
@@ -276,7 +276,7 @@ fn test_gen_random_command_line() {
                             .run(&command_line_args);
 
                     let Ok(ParseResult::Ready(state, _)) = result else {
-                        panic!("Expected a ready result");
+                        panic!("Expected a ready result; got this instead: {:#?}", result);
                     };
 
                     assert_eq!(state.values_owned(), command_values);

@@ -35,7 +35,7 @@ pub struct Context {
     _command_spec: CommandSpec,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd)]
 pub struct State<'args> {
     pub context_id: usize,
     pub node_id: usize,
@@ -97,15 +97,23 @@ impl<'args> SelectBestState<'args> for Vec<State<'args>> {
 
         let highest_keyword_count = required_option_set_states.iter()
             .map(|state| state.keyword_count)
-            .max();
-
-        let Some(highest_keyword_count) = highest_keyword_count else {
-            return Err(Error::NotFound(vec![]));
-        };
+            .max()
+            .unwrap();
 
         required_option_set_states.retain(|state| {
             state.keyword_count == highest_keyword_count
         });
+        
+        let longest_positional_length = required_option_set_states.iter()
+            .map(|state| state.positional_values.len())
+            .max()
+            .unwrap();
+
+        required_option_set_states.retain(|state| {
+            state.positional_values.len() == longest_positional_length
+        });
+
+        println!("required_option_set_states: {:#?}", required_option_set_states);
 
         if required_option_set_states.len() > 1 {
             return Err(Error::AmbiguousSyntax(required_option_set_states.iter().map(|state| commands[state.context_id]).collect()));
@@ -576,9 +584,6 @@ impl<'cmds> CommandBuilderContext<'cmds> {
         let options_node_id
             = self.machine.create_node();
 
-        let next_node_id
-            = self.machine.create_node();
-
         self.machine.register_dynamic(
             pre_node_id,
             self.get_positional_check(),
@@ -586,17 +591,15 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             Some(reducer),
         );
 
-        self.machine.register_shortcut(
-            options_node_id,
-            next_node_id,
-        );
+        let next_node_id
+            = self.attach_options(options_node_id);
 
         self.machine.register_shortcut(
             pre_node_id,
             next_node_id,
         );
 
-        self.attach_options(options_node_id)
+        next_node_id
     }
 
     fn attach_required(&mut self, pre_node_id: usize, reducer: Reducer) -> usize {
@@ -676,27 +679,29 @@ impl<'cmds> CommandBuilderContext<'cmds> {
         let mut current_node_id
             = self.attach_options(first_node_id);
 
-        if !self.spec.paths.is_empty() {
+        if !self.spec.paths.is_empty() && !self.spec.paths.iter().all(|path| path.is_empty()) {
             let post_paths_node_id
                 = self.machine.create_node();
 
             for path in &self.spec.paths {
                 let mut current_path_node_id
-                    = first_node_id;
+                    = current_node_id;
 
-                for segment in path {
-                    let post_segment_node_id
-                        = self.machine.create_node();
+                if !path.is_empty() {
+                    for segment in path {
+                        let post_segment_node_id
+                            = self.machine.create_node();
 
-                    self.machine.register_static(
-                        current_path_node_id,
-                        Arg::User(segment.as_str()),
-                        post_segment_node_id,
-                        None,
-                    );
+                        self.machine.register_static(
+                            current_path_node_id,
+                            Arg::User(segment.as_str()),
+                            post_segment_node_id,
+                            None,
+                        );
 
-                    current_path_node_id
-                        = self.attach_options(post_segment_node_id);
+                        current_path_node_id
+                            = self.attach_options(post_segment_node_id);
+                    }
                 }
 
                 self.machine.register_shortcut(
@@ -881,13 +886,20 @@ fn it_should_select_commands_by_their_path() {
     let mut cli_builder
         = CliBuilder::new();
 
-    let spec = CommandSpec {
+    let spec1 = CommandSpec {
         paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
         required_options: vec![],
     };
 
-    cli_builder.add_command(&spec);
+    let spec2 = CommandSpec {
+        paths: vec![],
+        components: vec![Component::Positional(PositionalSpec::keyword("bar"))],
+        required_options: vec![],
+    };
+
+    cli_builder.add_command(&spec1);
+    cli_builder.add_command(&spec2);
 
     let result
         = cli_builder.run(&["foo"]);
@@ -913,13 +925,20 @@ fn it_should_favor_paths_over_mandatory_positional_arguments() {
     let mut cli_builder
         = CliBuilder::new();
 
-    let spec = CommandSpec {
+    let spec1 = CommandSpec {
         paths: vec![],
         components: vec![Component::Positional(PositionalSpec::required())],
         required_options: vec![],
     };
 
-    cli_builder.add_command(&spec);
+    let spec2 = CommandSpec {
+        paths: vec![],
+        components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
+        required_options: vec![],
+    };
+
+    cli_builder.add_command(&spec1);
+    cli_builder.add_command(&spec2);
 
     let result
         = cli_builder.run(&["foo"]);
@@ -955,6 +974,43 @@ fn it_should_favor_paths_over_optional_positional_arguments() {
         = cli_builder.run(&["foo"]);
 
     let Ok(ParseResult::Ready(state, _)) = result else {
+        panic!("Expected a ready result");
+    };
+
+    assert_eq!(state.context_id, 1);
+}
+
+#[test]
+fn it_should_favor_paths_filling_early_positional_arguments() {
+    let mut cli_builder
+        = CliBuilder::new();
+
+    let spec1 = CommandSpec {
+        paths: vec![],
+        components: vec![Component::Positional(PositionalSpec::optional()), Component::Positional(PositionalSpec::rest())],
+        required_options: vec![],
+    };
+
+    let spec2 = CommandSpec {
+        paths: vec![],
+        components: vec![Component::Positional(PositionalSpec::optional()), Component::Positional(PositionalSpec::optional()), Component::Positional(PositionalSpec::rest())],
+        required_options: vec![],
+    };
+
+    let spec3 = CommandSpec {
+        paths: vec![],
+        components: vec![Component::Positional(PositionalSpec::rest())],
+        required_options: vec![],
+    };
+
+    cli_builder.add_command(&spec1);
+    cli_builder.add_command(&spec2);
+    cli_builder.add_command(&spec3);
+
+    let result
+        = cli_builder.run(&["foo", "bar", "baz"]);
+
+    let ParseResult::Ready(state, _) = result.unwrap() else {
         panic!("Expected a ready result");
     };
 

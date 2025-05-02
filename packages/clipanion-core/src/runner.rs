@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{collections::BTreeSet, fmt::Debug};
 
 use itertools::Itertools;
 
@@ -41,7 +41,7 @@ pub struct Runner<'machine, 'cmds, TCheck, TReducer, TFallback, TState> {
     fallback: TFallback,
 
     states: Vec<TState>,
-    next_states: Vec<TState>,
+    next_states: BTreeSet<TState>,
 
     // Colors are used to avoid infinite loops.
     node_colors: Vec<usize>,
@@ -55,7 +55,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
         TReducer: DeriveState<'args, TState> + Debug,
         TFallback: Fn(TState, Arg<'args>) -> TState,
         TState: Clone + RunnerState,
-        TState: Default + std::fmt::Debug
+        TState: Default + std::fmt::Debug + Ord
     {
         let mut runner
             = Runner::<'machine, 'cmds, TCheck, TReducer, TFallback, TState>::new(machine, fallback);
@@ -81,11 +81,11 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
     where
         TCheck: ValidateTransition<'args, TState>,
         TReducer: DeriveState<'args, TState> + Debug,
-        TState: Clone + RunnerState + Debug + Default
+        TState: Clone + RunnerState + Debug + Default + Ord
     {
         let mut runner = Runner {
             states: vec![],
-            next_states: vec![],
+            next_states: BTreeSet::new(),
             machine,
             fallback,
             node_colors: vec![0; machine.nodes.len()],
@@ -95,7 +95,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
         let initial_state
             = TState::default();
 
-        runner.next_states.push(initial_state.clone());
+        runner.next_states.insert(initial_state.clone());
 
         let initial_node
             = runner.machine.nodes.get(INITIAL_NODE_ID)
@@ -105,10 +105,8 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
             runner.transition_to(&initial_state, shortcut, Arg::StartOfInput);
         }
 
-        std::mem::swap(
-            &mut runner.states,
-            &mut runner.next_states,
-        );
+        runner.states = runner.next_states.into_iter().collect();
+        runner.next_states = BTreeSet::new();
 
         runner
     }
@@ -117,7 +115,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
     where
         TCheck: ValidateTransition<'args, TState>,
         TReducer: DeriveState<'args, TState> + Debug,
-        TState: Clone + RunnerState + Debug
+        TState: Clone + RunnerState + Debug + Ord
     {
         self.current_color = self.current_color.wrapping_add(1);
         self.transition_to_color(from_state, transition, token, self.current_color);
@@ -127,7 +125,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
     where
         TCheck: ValidateTransition<'args, TState>,
         TReducer: DeriveState<'args, TState> + Debug,
-        TState: Clone + RunnerState + Debug
+        TState: Clone + RunnerState + Debug + Ord
     {
         let mut next_state
             = from_state.clone();
@@ -149,7 +147,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
             }
         }
 
-        self.next_states.push(next_state);
+        self.next_states.insert(next_state);
     }
 
     pub fn update<'args>(&mut self, token: Arg<'args>) -> ()
@@ -157,9 +155,9 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
         TCheck: ValidateTransition<'args, TState>,
         TReducer: DeriveState<'args, TState> + Debug,
         TFallback: Fn(TState, Arg<'args>) -> TState,
-        TState: Clone + RunnerState + Debug
+        TState: Clone + RunnerState + Debug + Ord
     {
-        let mut states
+        let states
             = std::mem::take(&mut self.states);
 
         for state in &states {
@@ -190,7 +188,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
             }
 
             if !transitioned {
-                self.next_states.push((self.fallback)(state.clone(), token));
+                self.next_states.insert((self.fallback)(state.clone(), token));
             }
         }
 
@@ -202,10 +200,11 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
             println!("no next states due to {:?} (was in {:?})", token, states.iter().map(|state| state.get_node_id()).join(", "));
         }
 
-        std::mem::swap(&mut self.states, &mut states);
-        std::mem::swap(&mut self.states, &mut self.next_states);
+        let next_states
+            = std::mem::take(&mut self.next_states);
 
-        self.next_states.clear();
+        self.states = next_states.into_iter().collect();
+        self.next_states = BTreeSet::new();
     }
 
     pub fn digest(self) -> Result<Vec<TState>, ()> {
