@@ -507,6 +507,10 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
                         partial.#field_ident = Some(Some(value));
                     });
+
+                    initialization_members.push(quote! {
+                        #field_ident: partial.#field_ident.unwrap_or_default(),
+                    });
                 } else {
                     hydraters.push(quote! {
                         let positional = args.first().unwrap();
@@ -516,11 +520,11 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
 
                         partial.#field_ident = Some(value);
                     });
-                }
 
-                initialization_members.push(quote! {
-                    #field_ident: partial.#field_ident.unwrap(),
-                });
+                    initialization_members.push(quote! {
+                        #field_ident: partial.#field_ident.unwrap(),
+                    });
+                }
 
                 let (min_len, extra_len) = match is_option_type {
                     true => (quote!{0}, quote!{Some(1)}),
@@ -575,7 +579,7 @@ fn command_impl(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream
             }
 
             fn hydrate_command_from_state(environment: &clipanion::advanced::Environment, state: &clipanion::core::State) -> Result<Self, clipanion::core::CommandError> {
-                #[derive(Default)]
+                #[derive(Default, Debug)]
                 struct Partial {
                     #(#partial_struct_members)*
                 }

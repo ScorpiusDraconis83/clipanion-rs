@@ -113,8 +113,6 @@ impl<'args> SelectBestState<'args> for Vec<State<'args>> {
             state.positional_values.len() == longest_positional_length
         });
 
-        println!("required_option_set_states: {:#?}", required_option_set_states);
-
         if required_option_set_states.len() > 1 {
             return Err(Error::AmbiguousSyntax(required_option_set_states.iter().map(|state| commands[state.context_id]).collect()));
         }
