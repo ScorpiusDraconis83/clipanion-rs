@@ -1,9 +1,7 @@
-// mod actions;
-// mod builder;
 mod errors;
 mod machine;
 mod node;
-// mod runner;
+mod selector;
 mod shared;
 mod transition;
 mod usage;
@@ -18,5 +16,6 @@ pub use builder::*;
 pub use errors::*;
 pub use machine::Machine;
 pub use runner::*;
+pub use selector::*;
 pub use shared::HELP_COMMAND_INDEX;
 pub use usage::*;

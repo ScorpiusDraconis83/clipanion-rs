@@ -58,6 +58,7 @@ fn gen_random_positional_spec<R: Rng>(rng: &mut R) -> PositionalSpec {
             description: "".to_string(),
             min_len: rng.random_range(0..3),
             extra_len: gen_optional(rng, |rng| rng.random_range(0..3)),
+            is_prefix: false,
             is_proxy: false,
         },
 
@@ -275,11 +276,19 @@ fn test_gen_random_command_line() {
                         = cli_builder
                             .run(&command_line_args);
 
-                    let Ok(ParseResult::Ready(state, _)) = result else {
-                        panic!("Expected a ready result; got this instead: {:#?}", result);
+                    let Ok(ParseResult::Selector(selector)) = result else {
+                        panic!("Expected a selector result; got this instead: {:#?}", result);
                     };
 
-                    assert_eq!(state.values_owned(), command_values);
+                    let (state, _)
+                        = selector.get_best_state().unwrap();
+
+                    let command_values_str
+                        = command_values.iter()
+                            .map(|(i, values)| (*i, values.iter().map(|s| s.as_str()).collect::<Vec<_>>()))
+                            .collect::<Vec<_>>();
+
+                    assert_eq!(state.values(), command_values_str);
                 });
 
                 if let Err(err) = result {

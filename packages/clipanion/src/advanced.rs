@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use clipanion_core::Info;
+use clipanion_core::{Info, SelectionResult};
 
 use crate::{details::{CommandExecutor, CommandExecutorAsync, CommandProvider}, format::Formatter};
 
@@ -41,39 +41,23 @@ impl Default for Environment {
     }
 }
 
-fn prepare_command<'cmds, 'args, S: CommandProvider>(builder: &'cmds clipanion_core::CliBuilder, env: &'args Environment) -> Result<clipanion_core::ParseResult<'cmds, 'args>, clipanion_core::Error<'cmds>> {
-    let args
-        = env.argv.iter()
-            .map(|s| s.as_str())
-            .collect::<Vec<_>>();
-
-    builder.run(&args)
-}
-
-fn finalize_command<'cmds, 'args, S: CommandProvider>(env: &Environment, parse_result: Result<clipanion_core::ParseResult<'cmds, 'args>, clipanion_core::Error<'cmds>>) -> std::process::ExitCode {
-    match parse_result {
-        Ok(clipanion_core::ParseResult::Ready(_, _)) => {
-            unreachable!("This is supposed to be handled by the executor");
-        },
-
-        Ok(clipanion_core::ParseResult::Builtin(_)) => {
-            std::process::ExitCode::SUCCESS
-        },
-
-        Err(clipanion_core::Error::CommandError(command_spec, command_error)) => {
+fn report_error<'cmds, 'args, S: CommandProvider>(env: &Environment, err: clipanion_core::Error<'cmds>) -> std::process::ExitCode {
+    match err {
+        clipanion_core::Error::CommandError(command_spec, command_error) => {
             println!("{}", Formatter::<S>::format_error(&env.info, "Error", &command_error.to_string(), vec![command_spec]));
             std::process::ExitCode::FAILURE
         },
 
-        Err(clipanion_core::Error::AmbiguousSyntax(_)) => {
+        clipanion_core::Error::AmbiguousSyntax(command_specs) => {
+            println!("{}", Formatter::<S>::format_error(&env.info, "Error", &"The provided arguments are ambiguous and need to be refined further. Possible options are:", command_specs));
             std::process::ExitCode::FAILURE
         },
 
-        Err(clipanion_core::Error::InternalError) => {
+        clipanion_core::Error::InternalError => {
             std::process::ExitCode::FAILURE
         },
 
-        Err(clipanion_core::Error::NotFound(_)) => {
+        clipanion_core::Error::NotFound(_) => {
             std::process::ExitCode::FAILURE
         },
     }
@@ -84,25 +68,33 @@ pub trait Cli {
     fn run_default() -> std::process::ExitCode;
 }
 
-impl<S: CommandProvider + CommandExecutor> Cli for S {
+impl<S> Cli for S where S: CommandProvider + CommandExecutor {
     fn run(env: Environment) -> std::process::ExitCode {
         let builder = S::build_cli()
             .unwrap();
 
         let parse_result
-            = prepare_command::<S>(&builder, &env);
+            = S::parse_args(&builder, &env);
 
-        if let Ok(clipanion_core::ParseResult::Ready(state, command_spec)) = parse_result {
-            let command_result
-                = S::execute_cli_state(&env, state);
+        match parse_result {
+            Ok(SelectionResult::Builtin(command)) => {
+                todo!()
+            },
 
-            if let Some(error_message) = &command_result.error_message {
-                finalize_command::<S>(&env, Err(clipanion_core::Error::CommandError(command_spec, error_message.to_string().into())));
-            }
+            Ok(SelectionResult::Command(command, command_spec)) => {
+                let command_result
+                    = command.execute(&env);
 
-            command_result.exit_code
-        } else {
-            finalize_command::<S>(&env, parse_result)
+                if let Some(error_message) = &command_result.error_message {
+                    return report_error::<S>(&env, clipanion_core::Error::CommandError(command_spec, error_message.to_string().into()));
+                }
+
+                command_result.exit_code
+            },
+
+            Err(err) => {
+                report_error::<S>(&env, err)
+            },
         }
     }
 
@@ -116,25 +108,33 @@ pub trait CliAsync {
     fn run_default() -> impl Future<Output = std::process::ExitCode>;
 }
 
-impl<S: CommandProvider + CommandExecutorAsync> CliAsync for S {
+impl<S> CliAsync for S where S: CommandProvider + CommandExecutorAsync {
     async fn run(env: Environment) -> std::process::ExitCode {
         let builder = S::build_cli()
             .unwrap();
 
         let parse_result
-            = prepare_command::<S>(&builder, &env);
+            = S::parse_args(&builder, &env);
 
-        if let Ok(clipanion_core::ParseResult::Ready(state, command_spec)) = parse_result {
-            let command_result
-                = S::execute_cli_state(&env, state).await;
+        match parse_result {
+            Ok(SelectionResult::Builtin(command)) => {
+                todo!()
+            },
 
-            if let Some(error_message) = &command_result.error_message {
-                finalize_command::<S>(&env, Err(clipanion_core::Error::CommandError(command_spec, error_message.to_string().into())));
-            }
+            Ok(SelectionResult::Command(command, command_spec)) => {
+                let command_result
+                    = command.execute(&env).await;
 
-            command_result.exit_code
-        } else {
-            finalize_command::<S>(&env, parse_result)
+                if let Some(error_message) = &command_result.error_message {
+                    return report_error::<S>(&env, clipanion_core::Error::CommandError(command_spec, error_message.to_string().into()));
+                }
+
+                command_result.exit_code
+            },
+
+            Err(err) => {
+                report_error::<S>(&env, err)
+            },
         }
     }
 

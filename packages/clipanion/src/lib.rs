@@ -23,16 +23,23 @@ pub use clipanion_core::{
 macro_rules! program_enum {
     ($name:ident, [$($command:ty),* $(,)?]) => {
         #[clipanion::derive::cli_enum($($command),*)]
-        enum $name {
-            Builtin($crate::core::BuiltinCommand<'static>),
-        }
-    }
+        #[clipanion::derive::cli_exec_sync($($command),*)]
+        enum $name {}
+    };
+
+    ($name:ident, [$($command:ty),* $(,)?], async) => {
+        #[clipanion::derive::cli_enum($($command),*)]
+        #[clipanion::derive::cli_exec_async($($command),*)]
+        enum $name {}
+    };
 }
 
 #[macro_export]
 macro_rules! program_provider {
     ($name:ident, [$($command:ty),* $(,)?]) => {
         impl $crate::details::CommandProvider for $name {
+            type Command = $name;
+
             fn command_usage(command_index: usize, opts: $crate::core::CommandUsageOptions) -> Result<$crate::core::CommandUsageResult, $crate::core::BuildError> {
                 use $crate::details::CommandController;
 
@@ -43,7 +50,7 @@ macro_rules! program_provider {
                 FNS[command_index](opts)
             }
 
-            fn parse_args(builder: &$crate::core::CliBuilder<'static>, environment: &$crate::advanced::Environment) -> Result<$name, $crate::core::Error<'static>> {
+            fn parse_args<'args>(builder: &$crate::core::CliBuilder<'static>, environment: &'args $crate::advanced::Environment) -> Result<$crate::core::SelectionResult<'static, $name>, $crate::core::Error<'args>> {
                 let argv
                     = environment.argv.iter()
                         .map(|s| s.as_str())
@@ -52,14 +59,12 @@ macro_rules! program_provider {
                 let parse_result
                     = builder.run(&argv)?;
 
-                let (state, command_spec) = match parse_result {
-                    $crate::core::ParseResult::Ready(state, command_spec) => {
-                        (state, command_spec)
-                    },
+                if let $crate::core::ParseResult::Builtin(builtin) = parse_result {
+                    return Ok($crate::core::SelectionResult::Builtin(builtin));
+                }
 
-                    $crate::core::ParseResult::Builtin(builtin) => {
-                        return Ok($name::Builtin(builtin));
-                    },
+                let $crate::core::ParseResult::Selector(selector) = parse_result else {
+                    unreachable!("Expected a selector result");
                 };
 
                 const FNS: &[fn(&$crate::advanced::Environment, &$crate::core::State<'_>) -> Result<$name, $crate::core::CommandError>] = &[
@@ -73,10 +78,23 @@ macro_rules! program_provider {
                     }),*
                 ];
 
-                let result = FNS[state.context_id](environment, &state)
-                    .map_err(|e| $crate::core::Error::CommandError(command_spec, e))?;
+                let hydration_results
+                    = selector.states.iter()
+                        .map(|state| {
+                            let command_spec
+                                = selector.commands[state.context_id];
 
-                Ok(result)
+                            let f
+                                = FNS[state.context_id];
+
+                            let result = f(environment, &state)
+                                .map_err(|e| $crate::core::Error::CommandError(command_spec, e))?;
+
+                            Ok(result)
+                        })
+                        .collect::<Vec<_>>();
+
+                selector.get_best_hydrated_state(hydration_results)
             }
 
             fn build_cli() -> Result<$crate::core::CliBuilder<'static>, $crate::core::BuildError> {
@@ -90,90 +108,6 @@ macro_rules! program_provider {
                 Ok(builder)
             }
         }
-    }
-}
-
-#[macro_export]
-macro_rules! program_executor {
-    ($name:ident, [$($command:ty),* $(,)?]) => {
-        impl $crate::details::CommandExecutor for $name {
-            fn execute_cli_state(environment: &$crate::advanced::Environment, state: $crate::core::State) -> $crate::details::CommandResult {
-                use $crate::details::CommandController;
-
-                let mut command_index
-                    = state.context_id;
-
-                // We can't use recursive macros to generate match arms, and
-                // it's not possible yet to get the index of the current
-                // iteration in a `for` loop, so we have to use a manual
-                // counter here and hope the compiler optimizes it.
-                $({
-                    if command_index == 0 {
-                        let hydration_result
-                            = <$command>::hydrate_command_from_state(&environment, &state);
-                        
-                        let command = match hydration_result {
-                            Err(hydration_error) => return hydration_error.into(),
-                            Ok(command) => command
-                        };
-
-                        let command_result
-                            = command.execute();
-
-                        return command_result.into();
-                    } else {
-                        command_index -= 1;
-                    }
-                })*
-
-                std::unreachable!();
-            }
-        }
-    };
-
-    ($name:ident, [$($command:ty),* $(,)?], async) => {
-        impl $crate::details::CommandExecutorAsync for $name {
-            async fn execute_cli_state<'args>(environment: &$crate::advanced::Environment, state: $crate::core::State<'args>) -> $crate::details::CommandResult {
-                use $crate::details::CommandController;
-
-                let mut command_index
-                    = state.context_id;
-
-                // We can't use recursive macros to generate match arms, and
-                // it's not possible yet to get the index of the current
-                // iteration in a `for` loop, so we have to use a manual
-                // counter here and hope the compiler optimizes it.
-                $({
-                    if command_index == 0 {
-                        let hydration_result
-                            = <$command>::hydrate_command_from_state(&environment, &state);
-                        
-                        let command = match hydration_result {
-                            Err(hydration_error) => return hydration_error.into(),
-                            Ok(command) => command
-                        };
-
-                        let command_result
-                            = command.execute().await;
-
-                        return command_result.into();
-                    } else {
-                        command_index -= 1;
-                    }
-                })*
-
-                std::unreachable!();
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! program_block {
-    {$name:ident, [$($command:ty),* $(,)?]} => {
-        $crate::program_enum!($name, [$($command),*]);
-        $crate::program_provider!($name, [$($command),*]);
-        $crate::program_executor!($name, [$($command),*]);
     };
 }
 
@@ -182,16 +116,14 @@ macro_rules! program {
     ($name:ident, [$($command:ty),* $(,)?]) => {
         $crate::program_enum!($name, [$($command),*]);
         $crate::program_provider!($name, [$($command),*]);
-        $crate::program_executor!($name, [$($command),*]);
     };
 }
 
 #[macro_export]
 macro_rules! program_async {
     ($name:ident, [$($command:ty),* $(,)?]) => {
-        $crate::program_enum!($name, [$($command),*]);
+        $crate::program_enum!($name, [$($command),*], async);
         $crate::program_provider!($name, [$($command),*]);
-        $crate::program_executor!($name, [$($command),*], async);
     };
 }
 
@@ -213,7 +145,11 @@ macro_rules! test_cli_success {
             let result = result
                 .expect("expected command, got error");
 
-            f(result.into());
+            let $crate::core::SelectionResult::Command(command, _) = result else {
+                unreachable!("expected command, got error");
+            };
+
+            f(command.into());
         }
     };
 }
@@ -227,6 +163,8 @@ macro_rules! test_cli_failure {
 
             let cli = $cli_name::build_cli().unwrap();
             let env = $crate::advanced::Environment::default().with_argv(ARGS.iter().map(|s| s.to_string()).collect());
+
+            println!("cli: {:?}", cli.compile());
 
             let result = $cli_name::parse_args(&cli, &env);
             let f: fn($crate::core::Error<'_>) -> () = $fn;

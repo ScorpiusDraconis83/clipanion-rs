@@ -2,7 +2,7 @@ use std::{fmt::Display, iter::once};
 
 use itertools::Itertools;
 
-use crate::{machine, runner::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageResult, Error};
+use crate::{machine, runner::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageResult, Error, Selector};
 
 /**
  */
@@ -17,7 +17,7 @@ pub enum BuiltinCommand<'cmds> {
 #[derive(Debug, Clone)]
 pub enum ParseResult<'cmds, 'args> {
     Builtin(BuiltinCommand<'cmds>),
-    Ready(State<'args>, &'cmds CommandSpec),
+    Selector(Selector<'cmds, 'args>),
 }
 
 #[derive(Debug, Clone)]
@@ -241,6 +241,7 @@ pub enum PositionalSpec {
         min_len: usize,
         extra_len: Option<usize>,
 
+        is_prefix: bool,
         is_proxy: bool,
     },
 }
@@ -312,6 +313,7 @@ impl PositionalSpec {
             min_len: 0,
             extra_len: Some(1),
 
+            is_prefix: false,
             is_proxy: false,
         }
     }
@@ -324,6 +326,7 @@ impl PositionalSpec {
             min_len: 1,
             extra_len: Some(0),
 
+            is_prefix: false,
             is_proxy: false,
         }
     }
@@ -336,6 +339,7 @@ impl PositionalSpec {
             min_len: 0,
             extra_len: None,
 
+            is_prefix: false,
             is_proxy: false,
         }
     }
@@ -348,6 +352,7 @@ impl PositionalSpec {
             min_len: 0,
             extra_len: None,
 
+            is_prefix: false,
             is_proxy: true,
         }
     }
@@ -628,36 +633,102 @@ impl<'cmds> CommandBuilderContext<'cmds> {
 
         match extra_len {
             Some(extra_len) => {
-                for _ in 0..extra_len {
-                    current_node_id = self.attach_optional(current_node_id, next_action);
-                    next_action = subsequent_actions;
+                if extra_len > 0 {
+                    let end_node_id
+                        = self.machine.create_node();
+
+                    self.machine.register_shortcut(
+                        current_node_id,
+                        end_node_id,
+                    );
+
+                    for _ in 0..extra_len {
+                        current_node_id = self.attach_required(current_node_id, next_action);
+                        next_action = subsequent_actions;
+
+                        self.machine.register_shortcut(
+                            current_node_id,
+                            end_node_id,
+                        );
+                    }
+
+                    current_node_id = end_node_id;
                 }
             },
 
             None => {
-                if next_action == start_action && next_action != subsequent_actions {
-                    current_node_id = self.attach_optional(current_node_id, next_action);
-                    next_action = subsequent_actions;
-                }
-
-                let next_node_id
+                let end_node_id
                     = self.machine.create_node();
 
                 self.machine.register_shortcut(
                     current_node_id,
-                    next_node_id,
+                    end_node_id,
                 );
 
-                current_node_id
-                    = self.attach_options(next_node_id);
+                if next_action == start_action && next_action != subsequent_actions {
+                    current_node_id = self.attach_required(current_node_id, next_action);
+                    next_action = subsequent_actions;
 
-                self.machine.register_dynamic(
-                    next_node_id,
-                    self.get_positional_check(),
-                    next_node_id,
-                    Some(next_action),
+                    self.machine.register_shortcut(
+                        current_node_id,
+                        end_node_id,
+                    );
+                }
+
+                let post_variadic_node_id
+                    = self.attach_required(current_node_id, next_action);
+
+                self.machine.register_shortcut(
+                    post_variadic_node_id,
+                    current_node_id,
                 );
+
+                current_node_id = end_node_id;
             },
+        }
+
+        current_node_id
+    }
+
+    fn attach_positionals(&mut self, pre_node_id: usize, positionals: &Vec<(usize, &'cmds PositionalSpec)>) -> usize {
+        let mut current_node_id
+            = pre_node_id;
+
+        for (id, spec) in positionals {
+            match spec {
+                PositionalSpec::Keyword {expected} => {
+                    let next_node_id
+                        = self.machine.create_node();
+
+                    self.machine.register_static(
+                        current_node_id,
+                        Arg::User(expected),
+                        next_node_id,
+                        Some(Reducer::IncreaseStaticCount),
+                    );
+
+                    current_node_id
+                        = self.attach_options(next_node_id);
+                },
+
+                PositionalSpec::Dynamic {min_len, extra_len, is_proxy, ..} => {
+                    if *is_proxy {
+                        self.enter_proxy_options();
+                    }
+
+                    current_node_id = self.attach_variadic(
+                        current_node_id,
+                        *min_len,
+                        *extra_len,
+                        Reducer::StartValue(Attachment::Positional, *id),
+                        Reducer::PushValue(Attachment::Positional),
+                    );
+
+                    if *is_proxy {
+                        self.exit_proxy_options();
+                    }
+                },
+            }
         }
 
         current_node_id
@@ -676,6 +747,18 @@ impl<'cmds> CommandBuilderContext<'cmds> {
 
         let mut current_node_id
             = self.attach_options(first_node_id);
+
+        let positional_components = self.spec.components.iter()
+            .enumerate()
+            .filter_map(|(i, component)| if let Component::Positional(spec) = component {Some((i, spec))} else {None})
+            .collect::<Vec<_>>();
+
+        let (prefix_components, positional_components)
+            = positional_components.into_iter()
+                .partition(|(_, spec)| matches!(spec, PositionalSpec::Dynamic {is_prefix: true, ..}));
+
+        current_node_id
+            = self.attach_positionals(current_node_id, &prefix_components);
 
         if !self.spec.paths.is_empty() && !self.spec.paths.iter().all(|path| path.is_empty()) {
             let post_paths_node_id
@@ -711,50 +794,8 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             current_node_id = post_paths_node_id;
         }
 
-        let positionals
-            = self.spec.components.iter()
-                .enumerate()
-                .filter_map(|(i, component)| match component {
-                    Component::Positional(spec) => Some((i, spec)),
-                    _ => None,
-                });
-
-        for (id, spec) in positionals {
-            match spec {
-                PositionalSpec::Keyword {expected} => {
-                    let next_node_id
-                        = self.machine.create_node();
-
-                    self.machine.register_static(
-                        current_node_id,
-                        Arg::User(expected),
-                        next_node_id,
-                        Some(Reducer::IncreaseStaticCount),
-                    );
-
-                    current_node_id
-                        = self.attach_options(next_node_id);
-                },
-
-                PositionalSpec::Dynamic {min_len, extra_len, is_proxy, ..} => {
-                    if *is_proxy {
-                        self.enter_proxy_options();
-                    }
-
-                    current_node_id = self.attach_variadic(
-                        current_node_id,
-                        *min_len,
-                        *extra_len,
-                        Reducer::StartValue(Attachment::Positional, id),
-                        Reducer::PushValue(Attachment::Positional),
-                    );
-
-                    if *is_proxy {
-                        self.exit_proxy_options();
-                    }
-                },
-            }
-        }
+        current_node_id
+            = self.attach_positionals(current_node_id, &positional_components);
 
         self.machine.register_static(
             current_node_id,
@@ -817,16 +858,18 @@ impl<'cmds> CliBuilder<'cmds> {
         let machine
             = self.compile();
 
-        let state: Vec<State<'args>>
+        let states: Vec<State<'args>>
             = runner::Runner::run(&machine, on_error, args).unwrap();
         
-        let best_state = state
-            .select_best_state(&self.commands)?;
+        let mut selector: Selector<'cmds, 'args>
+            = Selector::new(self.commands.clone(), states);
 
-        let command
-            = self.commands[best_state.context_id];
+        selector.prune_unsuccessful_nodes()?;
+        selector.prune_by_keyword_count()?;
+        selector.prune_missing_required_options()?;
+        selector.prune_by_greediness()?;
 
-        Ok(ParseResult::Ready(best_state, command))
+        Ok(ParseResult::Selector(selector))
     }
 }
 
@@ -846,9 +889,12 @@ fn it_should_select_the_default_command_when_using_no_arguments() {
     let result
         = cli_builder.run(&[""; 0]);
 
-    let Ok(ParseResult::Ready(state, _)) = result else {
-        panic!("Expected a ready result");
+    let Ok(ParseResult::Selector(selector)) = result else {
+        panic!("Expected a selector result");
     };
+
+    let (state, _)
+        = selector.get_best_state().unwrap();
 
     assert_eq!(state.context_id, 0);
 }
@@ -872,9 +918,12 @@ fn it_should_select_the_default_command_when_using_mandatory_positional_argument
     let result
         = cli_builder.run(&["foo", "bar"]);
 
-    let Ok(ParseResult::Ready(state, _)) = result else {
-        panic!("Expected a ready result");
+    let Ok(ParseResult::Selector(selector)) = result else {
+        panic!("Expected a selector result");
     };
+
+    let (state, _)
+        = selector.get_best_state().unwrap();
 
     assert_eq!(state.context_id, 0);
 }
@@ -902,18 +951,24 @@ fn it_should_select_commands_by_their_path() {
     let result
         = cli_builder.run(&["foo"]);
 
-    let Ok(ParseResult::Ready(state, _)) = result else {
-        panic!("Expected a ready result");
+    let Ok(ParseResult::Selector(selector)) = result else {
+        panic!("Expected a selector result");
     };
+
+    let (state, _)
+        = selector.get_best_state().unwrap();
 
     assert_eq!(state.context_id, 0);
 
     let result
         = cli_builder.run(&["bar"]);
 
-    let Ok(ParseResult::Ready(state, _)) = result else {
-        panic!("Expected a ready result");
+    let Ok(ParseResult::Selector(selector)) = result else {
+        panic!("Expected a selector result");
     };
+
+    let (state, _)
+        = selector.get_best_state().unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -941,9 +996,12 @@ fn it_should_favor_paths_over_mandatory_positional_arguments() {
     let result
         = cli_builder.run(&["foo"]);
 
-    let Ok(ParseResult::Ready(state, _)) = result else {
-        panic!("Expected a ready result");
+    let Ok(ParseResult::Selector(selector)) = result else {
+        panic!("Expected a selector result");
     };
+
+    let (state, _)
+        = selector.get_best_state().unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -971,9 +1029,12 @@ fn it_should_favor_paths_over_optional_positional_arguments() {
     let result
         = cli_builder.run(&["foo"]);
 
-    let Ok(ParseResult::Ready(state, _)) = result else {
-        panic!("Expected a ready result");
+    let Ok(ParseResult::Selector(selector)) = result else {
+        panic!("Expected a selector result");
     };
+
+    let (state, _)
+        = selector.get_best_state().unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -1008,9 +1069,12 @@ fn it_should_favor_paths_filling_early_positional_arguments() {
     let result
         = cli_builder.run(&["foo", "bar", "baz"]);
 
-    let ParseResult::Ready(state, _) = result.unwrap() else {
-        panic!("Expected a ready result");
+    let ParseResult::Selector(selector) = result.unwrap() else {
+        panic!("Expected a selector result");
     };
+
+    let (state, _)
+        = selector.get_best_state().unwrap();
 
     assert_eq!(state.context_id, 1);
 }
@@ -1034,9 +1098,12 @@ fn it_should_aggregate_positional_values() {
     let result
         = cli_builder.run(&["foo", "bar"]);
 
-    let Ok(ParseResult::Ready(state, _)) = result else {
-        panic!("Expected a ready result");
+    let Ok(ParseResult::Selector(selector)) = result else {
+        panic!("Expected a selector result");
     };
+
+    let (state, _)
+        = selector.get_best_state().unwrap();
 
     assert_eq!(state.values(), vec![
         (0, vec!["foo"]),
@@ -1063,9 +1130,12 @@ fn it_should_aggregate_positional_values_with_rest() {
     let result
         = cli_builder.run(&["foo", "bar", "baz"]);
 
-    let Ok(ParseResult::Ready(state, _)) = result else {
-        panic!("Expected a ready result");
+    let Ok(ParseResult::Selector(selector)) = result else {
+        panic!("Expected a selector result");
     };
+
+    let (state, _)
+        = selector.get_best_state().unwrap();
 
     assert_eq!(state.values(), vec![
         (0, vec!["foo"]),
