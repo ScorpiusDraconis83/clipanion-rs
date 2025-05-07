@@ -50,7 +50,7 @@ macro_rules! program_provider {
                 FNS[command_index](opts)
             }
 
-            fn parse_args<'args>(builder: &$crate::core::CliBuilder<'static>, environment: &'args $crate::advanced::Environment) -> Result<$crate::core::SelectionResult<'static, $name>, $crate::core::Error<'args>> {
+            fn parse_args<'args>(builder: &$crate::core::CliBuilder<'static>, environment: &'args $crate::advanced::Environment) -> Result<$crate::core::SelectionResult<'static, 'args, <$name as $crate::details::CliEnums>::PartialEnum>, $crate::core::Error<'args>> where $name: $crate::details::CliEnums {
                 let argv
                     = environment.argv.iter()
                         .map(|s| s.as_str())
@@ -63,38 +63,27 @@ macro_rules! program_provider {
                     return Ok($crate::core::SelectionResult::Builtin(builtin));
                 }
 
-                let $crate::core::ParseResult::Selector(selector) = parse_result else {
+                let $crate::core::ParseResult::Selector(mut selector) = parse_result else {
                     unreachable!("Expected a selector result");
                 };
 
-                const FNS: &[fn(&$crate::advanced::Environment, &$crate::core::State<'_>) -> Result<$name, $crate::core::CommandError>] = &[
+                const FNS: &[fn(&$crate::advanced::Environment, &$crate::core::State<'_>) -> Result<<$name as ::clipanion::details::CliEnums>::PartialEnum, $crate::core::CommandError>] = &[
                     $(|environment, state| {
                         use $crate::details::CommandController;
 
-                        let command
-                            = <$command>::hydrate_command_from_state(environment, state)?;
+                        let partial
+                            = <$command>::hydrate_from_state(environment, state)?;
 
-                        Ok(command.into())
+                        Ok(partial.into())
                     }),*
                 ];
 
-                let hydration_results
-                    = selector.states.iter()
-                        .map(|state| {
-                            let command_spec
-                                = selector.commands[state.context_id];
+                selector.resolve_state(|state| {
+                    let command
+                        = FNS[state.context_id](environment, state)?;
 
-                            let f
-                                = FNS[state.context_id];
-
-                            let result = f(environment, &state)
-                                .map_err(|e| $crate::core::Error::CommandError(command_spec, e))?;
-
-                            Ok(result)
-                        })
-                        .collect::<Vec<_>>();
-
-                selector.get_best_hydrated_state(hydration_results)
+                    Ok(command.into())
+                })
             }
 
             fn build_cli() -> Result<$crate::core::CliBuilder<'static>, $crate::core::BuildError> {
@@ -104,6 +93,8 @@ macro_rules! program_provider {
                     = $crate::core::CliBuilder::new();
 
                 $(builder.add_command(<$command>::command_spec()?);)*
+
+                // println!("{:?}", builder.compile());
 
                 Ok(builder)
             }
@@ -143,11 +134,15 @@ macro_rules! test_cli_success {
             let f: fn($command_name) -> () = $fn;
 
             let result = result
-                .expect("expected command, got error");
+                .unwrap_or_else(|err| panic!("expected command, got error: {:?}", err));
 
-            let $crate::core::SelectionResult::Command(command, _) = result else {
-                unreachable!("expected command, got error");
+            let $crate::core::SelectionResult::Command(_, _, command) = result else {
+                unreachable!("expected command, got something else");
             };
+
+            let command
+                = <$cli_name as $crate::details::CliEnums>::Enum::try_from(command)
+                    .unwrap();
 
             f(command.into());
         }

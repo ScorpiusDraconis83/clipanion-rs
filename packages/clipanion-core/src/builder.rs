@@ -4,11 +4,14 @@ use itertools::Itertools;
 
 use crate::{machine, runner::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageResult, Error, Selector};
 
+#[cfg(test)]
+use crate::SelectionResult;
+
 /**
  */
 #[derive(Debug, Clone)]
 pub enum BuiltinCommand<'cmds> {
-    Help(Option<&'cmds CommandSpec>),
+    Help(Vec<&'cmds CommandSpec>),
 }
 
 /**
@@ -61,63 +64,6 @@ impl<'args> State<'args> {
             .into_iter()
             .map(|(id, values)| (id, values.into_iter().map(|s| s.to_string()).collect()))
             .collect()
-    }
-}
-
-pub trait SelectBestState<'args> {
-    fn select_best_state<'cmds>(self, commands: &Vec<&'cmds CommandSpec>) -> Result<State<'args>, Error<'cmds>>;
-}
-
-impl<'args> SelectBestState<'args> for Vec<State<'args>> {
-    fn select_best_state<'cmds>(self, commands: &Vec<&'cmds CommandSpec>) -> Result<State<'args>, Error<'cmds>> {
-        let mut terminal_states = self;
-
-        terminal_states.retain(|state| {
-            state.node_id == SUCCESS_NODE_ID
-        });
-
-        if terminal_states.is_empty() {
-            return Err(Error::NotFound(vec![]));
-        }
-
-        let mut required_option_set_states = terminal_states.iter()
-            .filter(|state| {
-                commands[state.context_id].required_options.iter().all(|option_id| {
-                    state.option_values.iter().any(|(id, _)| {
-                        *id == *option_id
-                    })
-                })
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-
-        if required_option_set_states.is_empty() {
-            return Err(Error::NotFound(vec![]));
-        }
-
-        let highest_keyword_count = required_option_set_states.iter()
-            .map(|state| state.keyword_count)
-            .max()
-            .unwrap();
-
-        required_option_set_states.retain(|state| {
-            state.keyword_count == highest_keyword_count
-        });
-        
-        let longest_positional_length = required_option_set_states.iter()
-            .map(|state| state.positional_values.len())
-            .max()
-            .unwrap();
-
-        required_option_set_states.retain(|state| {
-            state.positional_values.len() == longest_positional_length
-        });
-
-        if required_option_set_states.len() > 1 {
-            return Err(Error::AmbiguousSyntax(required_option_set_states.iter().map(|state| commands[state.context_id]).collect()));
-        }
-
-        Ok(required_option_set_states.pop().unwrap())
     }
 }
 
@@ -583,28 +529,6 @@ impl<'cmds> CommandBuilderContext<'cmds> {
         post_options_node_id
     }
 
-    fn attach_optional(&mut self, pre_node_id: usize, reducer: Reducer) -> usize {
-        let options_node_id
-            = self.machine.create_node();
-
-        self.machine.register_dynamic(
-            pre_node_id,
-            self.get_positional_check(),
-            options_node_id,
-            Some(reducer),
-        );
-
-        let next_node_id
-            = self.attach_options(options_node_id);
-
-        self.machine.register_shortcut(
-            pre_node_id,
-            next_node_id,
-        );
-
-        next_node_id
-    }
-
     fn attach_required(&mut self, pre_node_id: usize, reducer: Reducer) -> usize {
         let next_node_id
             = self.machine.create_node();
@@ -777,7 +701,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
                             current_path_node_id,
                             Arg::User(segment.as_str()),
                             post_segment_node_id,
-                            None,
+                            Some(Reducer::IncreaseStaticCount),
                         );
 
                         current_path_node_id
@@ -792,6 +716,44 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             }
 
             current_node_id = post_paths_node_id;
+        }
+
+        let is_first_positional_a_proxy
+            = self.spec.components.iter()
+                .find_map(|component| if let Component::Positional(PositionalSpec::Dynamic {is_proxy, ..}) = component {Some(*is_proxy)} else {None})
+                .unwrap_or(false);
+
+        if !is_first_positional_a_proxy {
+            let post_path_help_node_id
+                = self.machine.create_node();
+
+            self.machine.register_static(
+                current_node_id,
+                Arg::User("--help"),
+                post_path_help_node_id,
+                Some(Reducer::IncreaseStaticCount),
+            );
+
+            self.machine.register_static(
+                current_node_id,
+                Arg::User("-h"),
+                post_path_help_node_id,
+                Some(Reducer::IncreaseStaticCount),
+            );
+
+            self.machine.register_dynamic(
+                post_path_help_node_id,
+                None,
+                post_path_help_node_id,
+                None,
+            );
+
+            self.machine.register_static(
+                post_path_help_node_id,
+                Arg::EndOfInput,
+                SUCCESS_NODE_ID,
+                Some(Reducer::EnableHelp),
+            );
         }
 
         current_node_id
@@ -841,17 +803,11 @@ impl<'cmds> CliBuilder<'cmds> {
 
     pub fn run<'args>(&self, args: &[&'args str]) -> Result<ParseResult<'cmds, 'args>, Error<'cmds>> {
         if args == vec!["--help"] || args == vec!["-h"] {
-            return Ok(ParseResult::Builtin(BuiltinCommand::Help(None)));
+            return Ok(ParseResult::Builtin(BuiltinCommand::Help(vec![])));
         }
 
-        fn on_error<'args>(mut state: State<'args>, arg: Arg<'args>) -> State<'args> {
-            if arg == Arg::User("-h") || arg == Arg::User("--help") || state.is_help {
-                state.is_help = true;
-                state.set_node_id(SUCCESS_NODE_ID);
-            } else {
-                state.set_node_id(ERROR_NODE_ID);
-            }
-
+        fn on_error<'args>(mut state: State<'args>, _: Arg<'args>) -> State<'args> {
+            state.set_node_id(ERROR_NODE_ID);
             state
         }
 
@@ -861,13 +817,8 @@ impl<'cmds> CliBuilder<'cmds> {
         let states: Vec<State<'args>>
             = runner::Runner::run(&machine, on_error, args).unwrap();
         
-        let mut selector: Selector<'cmds, 'args>
+        let selector: Selector<'cmds, 'args>
             = Selector::new(self.commands.clone(), states);
-
-        selector.prune_unsuccessful_nodes()?;
-        selector.prune_by_keyword_count()?;
-        selector.prune_missing_required_options()?;
-        selector.prune_by_greediness()?;
 
         Ok(ParseResult::Selector(selector))
     }
@@ -889,12 +840,16 @@ fn it_should_select_the_default_command_when_using_no_arguments() {
     let result
         = cli_builder.run(&[""; 0]);
 
-    let Ok(ParseResult::Selector(selector)) = result else {
+    let Ok(ParseResult::Selector(mut selector)) = result else {
         panic!("Expected a selector result");
     };
 
-    let (state, _)
-        = selector.get_best_state().unwrap();
+    let selector_result
+        = selector.resolve_state(|_| Ok(())).unwrap();
+
+    let SelectionResult::Command(_, state, _) = selector_result else {
+        panic!("Expected a command result");
+    };
 
     assert_eq!(state.context_id, 0);
 }
@@ -918,12 +873,16 @@ fn it_should_select_the_default_command_when_using_mandatory_positional_argument
     let result
         = cli_builder.run(&["foo", "bar"]);
 
-    let Ok(ParseResult::Selector(selector)) = result else {
+    let Ok(ParseResult::Selector(mut selector)) = result else {
         panic!("Expected a selector result");
     };
 
-    let (state, _)
-        = selector.get_best_state().unwrap();
+    let selector_result
+        = selector.resolve_state(|_| Ok(())).unwrap();
+
+    let SelectionResult::Command(_, state, _) = selector_result else {
+        panic!("Expected a command result");
+    };
 
     assert_eq!(state.context_id, 0);
 }
@@ -951,24 +910,32 @@ fn it_should_select_commands_by_their_path() {
     let result
         = cli_builder.run(&["foo"]);
 
-    let Ok(ParseResult::Selector(selector)) = result else {
+    let Ok(ParseResult::Selector(mut selector)) = result else {
         panic!("Expected a selector result");
     };
 
-    let (state, _)
-        = selector.get_best_state().unwrap();
+    let selector_result
+        = selector.resolve_state(|_| Ok(())).unwrap();
+
+    let SelectionResult::Command(_, state, _) = selector_result else {
+        panic!("Expected a command result");
+    };
 
     assert_eq!(state.context_id, 0);
 
     let result
         = cli_builder.run(&["bar"]);
 
-    let Ok(ParseResult::Selector(selector)) = result else {
+    let Ok(ParseResult::Selector(mut selector)) = result else {
         panic!("Expected a selector result");
     };
 
-    let (state, _)
-        = selector.get_best_state().unwrap();
+    let selector_result
+        = selector.resolve_state(|_| Ok(())).unwrap();
+
+    let SelectionResult::Command(_, state, _) = selector_result else {
+        panic!("Expected a command result");
+    };
 
     assert_eq!(state.context_id, 1);
 }
@@ -996,12 +963,16 @@ fn it_should_favor_paths_over_mandatory_positional_arguments() {
     let result
         = cli_builder.run(&["foo"]);
 
-    let Ok(ParseResult::Selector(selector)) = result else {
+    let Ok(ParseResult::Selector(mut selector)) = result else {
         panic!("Expected a selector result");
     };
 
-    let (state, _)
-        = selector.get_best_state().unwrap();
+    let selector_result
+        = selector.resolve_state(|_| Ok(())).unwrap();
+
+    let SelectionResult::Command(_, state, _) = selector_result else {
+        panic!("Expected a command result");
+    };
 
     assert_eq!(state.context_id, 1);
 }
@@ -1029,12 +1000,16 @@ fn it_should_favor_paths_over_optional_positional_arguments() {
     let result
         = cli_builder.run(&["foo"]);
 
-    let Ok(ParseResult::Selector(selector)) = result else {
+    let Ok(ParseResult::Selector(mut selector)) = result else {
         panic!("Expected a selector result");
     };
 
-    let (state, _)
-        = selector.get_best_state().unwrap();
+    let selector_result
+        = selector.resolve_state(|_| Ok(())).unwrap();
+
+    let SelectionResult::Command(_, state, _) = selector_result else {
+        panic!("Expected a command result");
+    };
 
     assert_eq!(state.context_id, 1);
 }
@@ -1069,12 +1044,16 @@ fn it_should_favor_paths_filling_early_positional_arguments() {
     let result
         = cli_builder.run(&["foo", "bar", "baz"]);
 
-    let ParseResult::Selector(selector) = result.unwrap() else {
+    let Ok(ParseResult::Selector(mut selector)) = result else {
         panic!("Expected a selector result");
     };
 
-    let (state, _)
-        = selector.get_best_state().unwrap();
+    let selector_result
+        = selector.resolve_state(|_| Ok(())).unwrap();
+
+    let SelectionResult::Command(_, state, _) = selector_result else {
+        panic!("Expected a command result");
+    };
 
     assert_eq!(state.context_id, 1);
 }
@@ -1098,12 +1077,16 @@ fn it_should_aggregate_positional_values() {
     let result
         = cli_builder.run(&["foo", "bar"]);
 
-    let Ok(ParseResult::Selector(selector)) = result else {
+    let Ok(ParseResult::Selector(mut selector)) = result else {
         panic!("Expected a selector result");
     };
 
-    let (state, _)
-        = selector.get_best_state().unwrap();
+    let selector_result
+        = selector.resolve_state(|_| Ok(())).unwrap();
+
+    let SelectionResult::Command(_, state, _) = selector_result else {
+        panic!("Expected a command result");
+    };
 
     assert_eq!(state.values(), vec![
         (0, vec!["foo"]),
@@ -1130,12 +1113,16 @@ fn it_should_aggregate_positional_values_with_rest() {
     let result
         = cli_builder.run(&["foo", "bar", "baz"]);
 
-    let Ok(ParseResult::Selector(selector)) = result else {
+    let Ok(ParseResult::Selector(mut selector)) = result else {
         panic!("Expected a selector result");
     };
 
-    let (state, _)
-        = selector.get_best_state().unwrap();
+    let selector_result
+        = selector.resolve_state(|_| Ok(())).unwrap();
+
+    let SelectionResult::Command(_, state, _) = selector_result else {
+        panic!("Expected a command result");
+    };
 
     assert_eq!(state.values(), vec![
         (0, vec!["foo"]),

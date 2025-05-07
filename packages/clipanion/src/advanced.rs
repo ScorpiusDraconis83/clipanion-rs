@@ -2,7 +2,7 @@ use std::future::Future;
 
 use clipanion_core::{Info, SelectionResult};
 
-use crate::{details::{CommandExecutor, CommandExecutorAsync, CommandProvider}, format::Formatter};
+use crate::{details::{CliEnums, CommandExecutor, CommandExecutorAsync, CommandProvider}, format::Formatter};
 
 /**
  * Used to define the properties of the CLI. In general you can ignore this and
@@ -57,7 +57,8 @@ fn report_error<'cmds, 'args, S: CommandProvider>(env: &Environment, err: clipan
             std::process::ExitCode::FAILURE
         },
 
-        clipanion_core::Error::NotFound(_) => {
+        clipanion_core::Error::NotFound(command_specs) => {
+            println!("{}", Formatter::<S>::format_error(&env.info, "Error", &"The provided arguments don't match any known syntax; use `--help` to get a list of possible options", command_specs));
             std::process::ExitCode::FAILURE
         },
     }
@@ -68,7 +69,7 @@ pub trait Cli {
     fn run_default() -> std::process::ExitCode;
 }
 
-impl<S> Cli for S where S: CommandProvider + CommandExecutor {
+impl<S> Cli for S where S: CliEnums + CommandProvider, S::Enum: CommandExecutor {
     fn run(env: Environment) -> std::process::ExitCode {
         let builder = S::build_cli()
             .unwrap();
@@ -77,13 +78,21 @@ impl<S> Cli for S where S: CommandProvider + CommandExecutor {
             = S::parse_args(&builder, &env);
 
         match parse_result {
-            Ok(SelectionResult::Builtin(command)) => {
+            Ok(SelectionResult::Builtin(_command)) => {
                 todo!()
             },
 
-            Ok(SelectionResult::Command(command, command_spec)) => {
+            Ok(SelectionResult::Command(command_spec, _, partial_command)) => {
+                let full_command = match <S as CliEnums>::Enum::try_from(partial_command) {
+                    Ok(full_command)
+                        => full_command,
+
+                    Err(err)
+                        => return report_error::<S>(&env, clipanion_core::Error::CommandError(command_spec, err)),
+                };
+
                 let command_result
-                    = command.execute(&env);
+                    = full_command.execute(&env);
 
                 if let Some(error_message) = &command_result.error_message {
                     return report_error::<S>(&env, clipanion_core::Error::CommandError(command_spec, error_message.to_string().into()));
@@ -108,7 +117,7 @@ pub trait CliAsync {
     fn run_default() -> impl Future<Output = std::process::ExitCode>;
 }
 
-impl<S> CliAsync for S where S: CommandProvider + CommandExecutorAsync {
+impl<S> CliAsync for S where S: CliEnums + CommandProvider, S::Enum: CommandExecutorAsync {
     async fn run(env: Environment) -> std::process::ExitCode {
         let builder = S::build_cli()
             .unwrap();
@@ -117,13 +126,21 @@ impl<S> CliAsync for S where S: CommandProvider + CommandExecutorAsync {
             = S::parse_args(&builder, &env);
 
         match parse_result {
-            Ok(SelectionResult::Builtin(command)) => {
+            Ok(SelectionResult::Builtin(_command)) => {
                 todo!()
             },
 
-            Ok(SelectionResult::Command(command, command_spec)) => {
+            Ok(SelectionResult::Command(command_spec, _, partial_command)) => {
+                let full_command = match <S as CliEnums>::Enum::try_from(partial_command) {
+                    Ok(full_command)
+                        => full_command,
+
+                    Err(err)
+                        => return report_error::<S>(&env, clipanion_core::Error::CommandError(command_spec, err)),
+                };
+
                 let command_result
-                    = command.execute(&env).await;
+                    = full_command.execute(&env).await;
 
                 if let Some(error_message) = &command_result.error_message {
                     return report_error::<S>(&env, clipanion_core::Error::CommandError(command_spec, error_message.to_string().into()));

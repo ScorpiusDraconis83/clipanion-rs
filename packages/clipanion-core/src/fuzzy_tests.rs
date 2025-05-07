@@ -4,7 +4,7 @@ use itertools::Itertools;
 use rand::Rng;
 use rand_seeder::SipHasher;
 
-use crate::{builder::{CliBuilder, CommandSpec, Component, OptionSpec, PositionalSpec}, ParseResult};
+use crate::{builder::{CliBuilder, CommandSpec, Component, OptionSpec, PositionalSpec}, ParseResult, SelectionResult};
 
 fn gen_string<R: Rng>(rng: &mut R, len: Range<usize>) -> String {
     let mut s = String::new();
@@ -276,12 +276,16 @@ fn test_gen_random_command_line() {
                         = cli_builder
                             .run(&command_line_args);
 
-                    let Ok(ParseResult::Selector(selector)) = result else {
+                    let Ok(ParseResult::Selector(mut selector)) = result else {
                         panic!("Expected a selector result; got this instead: {:#?}", result);
                     };
 
-                    let (state, _)
-                        = selector.get_best_state().unwrap();
+                    let selection_result
+                        = selector.resolve_state(|_| Ok(())).unwrap();
+
+                    let SelectionResult::Command(_, state, _) = selection_result else {
+                        panic!("Expected a command result");
+                    };
 
                     let command_values_str
                         = command_values.iter()

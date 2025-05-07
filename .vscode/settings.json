@@ -1,3 +1,4 @@
 {
-  "rust-analyzer.inlayHints.lifetimeElisionHints.enable": "always"
+  "rust-analyzer.inlayHints.lifetimeElisionHints.enable": "always",
+  "rust-analyzer.inlayHints.genericParameterHints.lifetime.enable": true
 }

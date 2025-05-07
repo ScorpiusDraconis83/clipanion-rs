@@ -19,6 +19,9 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
         panic!("Only structs are supported");
     };
 
+    let partial_struct_ident
+        = Ident::new(&format!("Partial{}", input.ident), Span::call_site());
+
     let mut builder = vec![];
     let mut hydraters = vec![];
     
@@ -53,7 +56,8 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
     let mut partial_struct_members
         = vec![];
-
+    let mut partial_struct_default_initializers
+        = vec![];
     let mut initialization_members
         = vec![];
 
@@ -153,12 +157,6 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 .map(|lit| lit.value())
                 .unwrap_or_default();
 
-            let is_required = option_bag.attributes.take("required")
-                .map(expect_lit!(Lit::Bool))
-                .transpose()?
-                .map(|lit| lit.value)
-                .unwrap_or(false);
-
             let preferred_name_lit = option_bag.path
                 .first()
                 .map(to_lit_str)
@@ -226,6 +224,10 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     #field_ident: Vec<#internal_field_type>,
                 });
 
+                partial_struct_default_initializers.push(quote! {
+                    #field_ident: Default::default(),
+                });
+
                 hydraters.push(quote! {
                     partial.#field_ident.extend(#value_converter);
                 });
@@ -248,12 +250,20 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                         #field_ident: #field_type,
                     });
 
+                    partial_struct_default_initializers.push(quote! {
+                        #field_ident: Default::default(),
+                    });
+
                     initialization_members.push(quote! {
                         #field_ident: #accessor,
                     });
                 } else {
                     partial_struct_members.push(quote! {
                         #field_ident: Option<#field_type>,
+                    });
+
+                    partial_struct_default_initializers.push(quote! {
+                        #field_ident: Default::default(),
                     });
 
                     initialization_members.push(quote! {
@@ -263,12 +273,16 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
             }
 
             builder.push(quote! {
+                if !#is_option_type {
+                    command_spec.required_options.push(command_spec.components.len());
+                }
+
                 command_spec.components.push(clipanion::core::Component::Option(clipanion::core::OptionSpec {
                     primary_name: #preferred_name_lit.to_string(),
                     aliases: vec![#(#aliases_lit.to_string()),*],
                     description: #description.to_string(),
                     is_hidden: false,
-                    is_required: #is_required,
+                    is_required: !#is_option_type,
                     allow_binding: false,
                     min_len: #min_len_lit,
                     extra_len: #extra_len_lit,
@@ -297,7 +311,11 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 partial_struct_members.push(quote! {
                     #field_ident: Vec<#internal_field_type>,
                 });
-    
+
+                partial_struct_default_initializers.push(quote! {
+                    #field_ident: Default::default(),
+                });
+
                 hydraters.push(quote! {
                     let value = args.iter()
                         .map(|arg| arg.parse().map_err(clipanion::details::handle_parse_error))
@@ -323,6 +341,10 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
             } else {
                 partial_struct_members.push(quote! {
                     #field_ident: Option<#field_type>,
+                });
+
+                partial_struct_default_initializers.push(quote! {
+                    #field_ident: Default::default(),
                 });
 
                 if is_option_type {
@@ -385,7 +407,41 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
     let expanded = quote! {
         #input
 
+        #[derive(Debug)]
+        struct #partial_struct_ident {
+            cli_environment: clipanion::advanced::Environment,
+            cli_path: Vec<String>,
+
+            #(#partial_struct_members)*
+        }
+
+        impl #partial_struct_ident {
+            pub fn new(environment: &clipanion::advanced::Environment, path: Vec<String>) -> Self {
+                Self {
+                    cli_environment: environment.clone(),
+                    cli_path: path,
+
+                    #(#partial_struct_default_initializers)*
+                }
+            }
+        }
+
+        impl TryFrom<#partial_struct_ident> for #struct_name {
+            type Error = ::clipanion::core::CommandError;
+
+            fn try_from(partial: #partial_struct_ident) -> Result<Self, ::clipanion::core::CommandError> {
+                Ok(Self {
+                    cli_environment: partial.cli_environment,
+                    cli_path: partial.cli_path,
+
+                    #(#initialization_members)*
+                })
+            }
+        }
+
         impl clipanion::details::CommandController for #struct_name {
+            type Partial = #partial_struct_ident;
+
             fn command_usage(opts: clipanion::core::CommandUsageOptions) -> Result<clipanion::core::CommandUsageResult, clipanion::core::BuildError> {
                 Ok(#struct_name::command_spec()?.usage())
             }
@@ -406,22 +462,17 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 COMMAND_SPEC.deref().as_ref().map_err(|e| e.clone())
             }
 
-            fn hydrate_command_from_state(environment: &clipanion::advanced::Environment, state: &clipanion::core::State) -> Result<Self, clipanion::core::CommandError> {
-                #[derive(Default, Debug)]
-                struct Partial {
-                    #(#partial_struct_members)*
-                }
-
+            fn hydrate_from_state(environment: &clipanion::advanced::Environment, state: &clipanion::core::State) -> Result<Self::Partial, clipanion::core::CommandError> {
                 let mut partial
-                    = Partial::default();
+                    = Self::Partial::new(environment, state.path.iter().map(|s| s.to_string()).collect());
 
-                let FNS: &[fn(&mut Partial, &[&str]) -> Result<(), clipanion::core::CommandError>] = &[
+                let FNS: &[fn(&mut Self::Partial, &[&str]) -> Result<(), clipanion::core::CommandError>] = &[
                     #(|partial, args| {
                         #hydraters
                         Ok(())
                     }),*
                 ];
-    
+
                 for (index, args) in &state.option_values {
                     FNS[*index](&mut partial, args)?;
                 }
@@ -430,12 +481,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     FNS[*index](&mut partial, args)?;
                 }
 
-                Ok(Self {
-                    cli_environment: environment.clone(),
-                    cli_path: state.path.iter().map(|s| s.to_string()).collect(),
-
-                    #(#initialization_members)*
-                })
+                Ok(partial)
             }
         }
     };

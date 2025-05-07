@@ -1,4 +1,4 @@
-use std::{convert::Infallible, fmt::Display, future::Future, iter::Peekable};
+use std::{convert::Infallible, fmt::Display, future::Future};
 
 use clipanion_core::{CommandError, CommandSpec, SelectionResult};
 
@@ -95,13 +95,20 @@ impl<T: Into<CommandResult>, E: std::fmt::Display> From<Result<T, E>> for Comman
  * Internal trait implemented by the #[command] attribute.
  */
 pub trait CommandController {
+    type Partial;
+
     fn command_usage(opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
     fn command_spec() -> Result<&'static CommandSpec, clipanion_core::BuildError>;
-    fn hydrate_command_from_state(environment: &Environment, state: &clipanion_core::State) -> Result<Self, clipanion_core::CommandError> where Self: Sized;
+    fn hydrate_from_state(environment: &Environment, state: &clipanion_core::State) -> Result<Self::Partial, clipanion_core::CommandError> where Self: Sized;
 }
 
 pub trait FromCommand<T> {
     fn from_command(command: T, command_spec: &'static CommandSpec) -> Self;
+}
+
+pub trait CliEnums {
+    type PartialEnum;
+    type Enum: TryFrom<Self::PartialEnum, Error = CommandError>;
 }
 
 /**
@@ -112,7 +119,7 @@ pub trait CommandProvider {
     type Command;
 
     fn command_usage(command_index: usize, opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
-    fn parse_args<'args>(builder: &clipanion_core::CliBuilder<'static>, environment: &'args Environment) -> Result<SelectionResult<'static, Self>, clipanion_core::Error<'args>> where Self: Sized;
+    fn parse_args<'args>(builder: &clipanion_core::CliBuilder<'static>, environment: &'args Environment) -> Result<SelectionResult<'static, 'args, Self::PartialEnum>, clipanion_core::Error<'args>> where Self: Sized + CliEnums;
     fn build_cli() -> Result<clipanion_core::CliBuilder<'static>, clipanion_core::BuildError>;
 }
 

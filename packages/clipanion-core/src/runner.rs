@@ -1,7 +1,5 @@
 use std::{collections::BTreeSet, fmt::Debug};
 
-use itertools::Itertools;
-
 use crate::{shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID}, transition::Transition, Machine};
 
 pub trait RunnerState {
@@ -133,7 +131,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
         if let Arg::User(raw) = token {
             transition.reducer.derive(&mut next_state, transition.to, &raw);
         } else {
-            next_state.set_node_id(transition.to);
+            transition.reducer.derive(&mut next_state, transition.to, "");
         }
 
         self.node_colors[transition.to] = color;
@@ -196,9 +194,11 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
             state.get_node_id() != ERROR_NODE_ID
         });
 
-        if self.next_states.is_empty() {
-            println!("no next states due to {:?} (was in {:?})", token, states.iter().map(|state| state.get_node_id()).join(", "));
-        }
+        // println!("{:?}", token);
+
+        // for state in &self.next_states {
+        //     println!("  -> [{}] {}: {:?}", state.get_context_id(), state.get_node_id(), state);
+        // }
 
         let next_states
             = std::mem::take(&mut self.next_states);

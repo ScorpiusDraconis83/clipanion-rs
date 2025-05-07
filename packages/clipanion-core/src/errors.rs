@@ -5,7 +5,7 @@ pub enum CommandError {
     #[error("{0}")]
     Custom(String),
 
-    #[error("Missing required option argument {0}")]
+    #[error("Missing required option argument(s): {0}")]
     MissingOptionArguments(String),
 
     #[error("Unsupported option name")]
