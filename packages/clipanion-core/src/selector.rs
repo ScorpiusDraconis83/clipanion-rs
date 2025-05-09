@@ -45,8 +45,8 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
     }
 
     fn prune_by_keyword_count<'a>(&mut self) {
-        let max_keyword_count = self.states.iter()
-            .map(|state| state.keyword_count)
+        let max_keyword_count = self.candidates.iter()
+            .map(|id| self.states[*id].keyword_count)
             .max();
 
         if let Some(max_keyword_count) = max_keyword_count {
@@ -83,8 +83,11 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
                 let (id, missing_option_indexes)
                     = unsuccessful_candidates.first().unwrap();
 
+                let state
+                    = &self.states[*id];
+
                 let command_spec
-                    = self.commands[*id];
+                    = self.commands[state.context_id];
 
                 let missing_options = missing_option_indexes.iter()
                     .map(|index| &command_spec.components[*index])
@@ -126,8 +129,11 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
                 let (id, error)
                     = hydration_errors.remove(0);
 
+                let state
+                    = &self.states[id];
+
                 let command_spec
-                    = self.commands[id];
+                    = self.commands[state.context_id];
 
                 return Err(Error::CommandError(command_spec, error));
             } else {
@@ -193,7 +199,8 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
             = vec![false; self.commands.len()];
 
         states_with_positional_tracks.retain(|(id, _)| {
-            let context_id = self.states[*id].context_id;
+            let context_id
+                = self.states[*id].context_id;
 
             if seen[context_id] {
                 false

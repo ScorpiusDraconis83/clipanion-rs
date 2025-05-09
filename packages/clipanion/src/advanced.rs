@@ -28,8 +28,13 @@ impl Default for Environment {
             .split('/').last().unwrap()
             .to_string();
 
+        let argv
+            = std::env::args()
+                .skip(1)
+                .collect();
+
         Self {
-            argv: std::env::args().skip(1).collect(),
+            argv,
             info: Info {
                 program_name: env!("CARGO_PKG_NAME").to_string(),
                 binary_name,

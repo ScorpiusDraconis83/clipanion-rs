@@ -403,7 +403,21 @@ pub struct CommandSpec {
 
 impl std::fmt::Display for CommandSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        format_collection(f, self.components.iter(), " ")?;
+        let primary_path = self.paths.iter()
+            .max_by_key(|path| path.len())
+            .unwrap();
+
+        let (prefix_components, suffix_components): (Vec<_>, _)
+            = self.components.iter()
+                .partition(|component| matches!(component, Component::Positional(PositionalSpec::Dynamic {is_prefix: true, ..})));
+
+        let components
+            = prefix_components.into_iter().map(|component| component.to_string())
+                .chain(primary_path.iter().map(|segment| segment.to_string()))
+                .chain(suffix_components.into_iter().map(|component| component.to_string()));
+
+        format_collection(f, components, " ")?;
+
         Ok(())
     }
 }
@@ -720,7 +734,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
 
         let is_first_positional_a_proxy
             = self.spec.components.iter()
-                .find_map(|component| if let Component::Positional(PositionalSpec::Dynamic {is_proxy, ..}) = component {Some(*is_proxy)} else {None})
+                .find_map(|component| if let Component::Positional(PositionalSpec::Dynamic {is_prefix, is_proxy, ..}) = component {(!is_prefix).then_some(*is_proxy)} else {None})
                 .unwrap_or(false);
 
         if !is_first_positional_a_proxy {

@@ -115,11 +115,11 @@ pub fn cli_enum_macro(types: Punctuated<syn::Path, syn::Token![,]>, item: syn::I
     Ok(TokenStream::from(quote! {
         #item
 
-        enum #partial_enum_ident {
+        pub enum #partial_enum_ident {
             #(#partial_enum_items,)*
         }
 
-        enum #enum_ident {
+        pub enum #enum_ident {
             #(#enum_items,)*
         }
 

@@ -149,6 +149,14 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
             if is_vec_type {
                 min_len = 0;
                 extra_len = None;
+
+                if let Some(min_len_expr) = option_bag.attributes.take("min_len") {
+                    let min_len_lit
+                        = expect_lit!(Lit::Int)(min_len_expr)?;
+
+                    min_len = min_len_lit
+                        .base10_parse::<usize>().unwrap_or(0);
+                }
             }
 
             let description = option_bag.attributes.take("help")
@@ -199,7 +207,8 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
             } else if is_bool {
                 quote! {Some(true)}
             } else if is_tuple {
-                let mut tuple_fields = vec![];
+                let mut tuple_fields
+                    = vec![];
 
                 for field in 0..item_count {
                     tuple_fields.push(quote! {
@@ -216,8 +225,15 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 }).transpose()?}
             };
 
+            let none_expr: Expr
+                = syn::parse_str("None").unwrap();
+
             let default_value
-                = option_bag.attributes.take("default");
+                = option_bag.attributes.take("default")
+                    .or_else(|| if is_option_type {Some(none_expr.clone())} else {None});
+
+            let is_required
+                = default_value.is_none();
 
             if is_vec_type {
                 partial_struct_members.push(quote! {
@@ -225,7 +241,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 });
 
                 partial_struct_default_initializers.push(quote! {
-                    #field_ident: Default::default(),
+                    #field_ident: std::default::Default::default(),
                 });
 
                 hydraters.push(quote! {
@@ -240,40 +256,38 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     partial.#field_ident = #value_converter;
                 });
 
-                let accessor = match default_value {
-                    Some(expr) => quote! { partial.#field_ident.or_else(|| Some(#expr)) },
-                    None => quote! { partial.#field_ident },
+                // If the field is an option type we already assume it's an
+                // optional option; we don't need to wrap it inside Option<T>
+                let partial_struct_member_type = match is_option_type {
+                    true => quote! {#field_type},
+                    false => quote! {Option<#field_type>},
                 };
 
-                if is_option_type {
-                    partial_struct_members.push(quote! {
-                        #field_ident: #field_type,
-                    });
+                partial_struct_members.push(quote! {
+                    #field_ident: #partial_struct_member_type,
+                });
 
-                    partial_struct_default_initializers.push(quote! {
-                        #field_ident: Default::default(),
-                    });
+                partial_struct_default_initializers.push(quote! {
+                    #field_ident: std::default::Default::default(),
+                });
 
-                    initialization_members.push(quote! {
-                        #field_ident: #accessor,
-                    });
-                } else {
-                    partial_struct_members.push(quote! {
-                        #field_ident: Option<#field_type>,
-                    });
+                let option_partial = match is_option_type {
+                    true => quote! {Some(partial.#field_ident)},
+                    false => quote! {partial.#field_ident},
+                };
 
-                    partial_struct_default_initializers.push(quote! {
-                        #field_ident: Default::default(),
-                    });
+                let partial_to_ty = match default_value {
+                    Some(expr) => quote! {#option_partial.unwrap_or_else(|| #expr)},
+                    None => quote! {#option_partial.unwrap()},
+                };
 
-                    initialization_members.push(quote! {
-                        #field_ident: #accessor.ok_or_else(|| clipanion::core::CommandError::MissingOptionArguments(#preferred_name_lit.to_string()))?,
-                    });
-                }
+                initialization_members.push(quote! {
+                    #field_ident: #partial_to_ty,
+                });
             }
 
             builder.push(quote! {
-                if !#is_option_type {
+                if #is_required {
                     command_spec.required_options.push(command_spec.components.len());
                 }
 
@@ -282,7 +296,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     aliases: vec![#(#aliases_lit.to_string()),*],
                     description: #description.to_string(),
                     is_hidden: false,
-                    is_required: !#is_option_type,
+                    is_required: #is_required,
                     allow_binding: false,
                     min_len: #min_len_lit,
                     extra_len: #extra_len_lit,
@@ -313,7 +327,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 });
 
                 partial_struct_default_initializers.push(quote! {
-                    #field_ident: Default::default(),
+                    #field_ident: std::default::Default::default(),
                 });
 
                 hydraters.push(quote! {
@@ -344,7 +358,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 });
 
                 partial_struct_default_initializers.push(quote! {
-                    #field_ident: Default::default(),
+                    #field_ident: std::default::Default::default(),
                 });
 
                 if is_option_type {
@@ -408,7 +422,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
         #input
 
         #[derive(Debug)]
-        struct #partial_struct_ident {
+        pub struct #partial_struct_ident {
             cli_environment: clipanion::advanced::Environment,
             cli_path: Vec<String>,
 
