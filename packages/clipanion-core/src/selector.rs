@@ -12,16 +12,18 @@ pub enum SelectionResult<'cmds, 'args, T> {
 #[derive(Debug, Clone)]
 pub struct Selector<'cmds, 'args> {
     pub commands: Vec<&'cmds CommandSpec>,
+    pub args: Vec<&'args str>,
     pub states: Vec<State<'args>>,
     pub candidates: Vec<usize>,
 }
 
 impl<'cmds, 'args> Selector<'cmds, 'args> {
-    pub fn new(commands: Vec<&'cmds CommandSpec>, states: Vec<State<'args>>) -> Self {
+    pub fn new(commands: Vec<&'cmds CommandSpec>, args: Vec<&'args str>, states: Vec<State<'args>>) -> Self {
         let candidates = (0..states.len()).collect();
 
         Self {
             commands,
+            args,
             states,
             candidates,
         }
@@ -36,10 +38,6 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
                 .filter(|id| self.states[*id].node_id == SUCCESS_NODE_ID)
                 .collect::<Vec<_>>();
 
-        if successful_candidates.len() == 0 {
-            return self.handle_everything_is_an_error();
-        }
-    
         self.candidates = successful_candidates;
         Ok(())
     }
@@ -215,7 +213,15 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
             .collect::<Vec<_>>();
     }
 
-    fn handle_everything_is_an_error(&mut self) -> Result<(), Error<'cmds>> {
+    fn handle_everything_is_an_error<T>(&mut self) -> Result<SelectionResult<'cmds, 'args, T>, Error<'cmds>> {
+        if self.args == vec!["--version"] {
+            return Ok(SelectionResult::Builtin(BuiltinCommand::Version));
+        }
+
+        if self.args == vec!["--help"] || self.args == vec!["-h"] {
+            return Ok(SelectionResult::Builtin(BuiltinCommand::Help(vec![])));
+        }
+
         self.candidates = (0..self.states.len()).collect();
 
         self.prune_by_keyword_count();
@@ -236,7 +242,13 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
     }
 
     pub fn resolve_state<F: Fn(&State<'args>) -> Result<T, CommandError>, T>(&mut self, f: F) -> Result<SelectionResult<'cmds, 'args, T>, Error<'cmds>> {
-        // println!("{:#?}", self.states);
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("========== Pre-selection states ==========");
+
+            for state in &self.states {
+                println!("- {:?}", state);
+            }
+        }
 
         let help_contexts = self.states.iter()
             .filter(|state| state.is_help)
@@ -250,8 +262,26 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
             return Ok(SelectionResult::Builtin(BuiltinCommand::Help(help_contexts)));
         }
 
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("========== Candidate filtering ==========");
+            println!("initial candidates: {:?}", self.candidates);
+        }
+
         self.prune_unsuccessful_nodes()?;
+
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("after prune_unsuccessful_nodes: {:?}", self.candidates);
+        }
+
+        if self.candidates.len() == 0 {
+            return self.handle_everything_is_an_error();
+        }
+
         self.prune_missing_required_options()?;
+
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("after prune_missing_required_options: {:?}", self.candidates);
+        }
 
         let hydration_results = self.candidates.iter()
             .map(|id| match f(&self.states[*id]) {
@@ -265,8 +295,22 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
                 .partition_result();
 
         self.prune_by_hydration_results(unsuccessful_hydrations)?;
+
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("after prune_by_hydration_results: {:?}", self.candidates);
+        }
+
         self.prune_by_keyword_count();
+
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("after prune_by_keyword_count: {:?}", self.candidates);
+        }
+
         self.prune_by_greediness();
+
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("after prune_by_greediness: {:?}", self.candidates);
+        }
 
         let owned_candidates
             = std::mem::take(&mut self.candidates);
@@ -286,6 +330,11 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
         let index
             = owned_candidates.first().unwrap();
 
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("========== Selected state ==========");
+            println!("{:?}", self.states[*index]);
+        }
+    
         let state
             = self.states.swap_remove(*index);
         let command_spec

@@ -26,7 +26,7 @@ impl<S: CommandProvider> Formatter<S> {
             .collect::<Vec<_>>();
 
         if !usage_lines.is_empty() {
-            result += "\n";
+            result += "\n\n";
             result += &usage_lines.join("\n");
         }
     

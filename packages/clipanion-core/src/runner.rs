@@ -55,6 +55,10 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
         TState: Clone + RunnerState,
         TState: Default + std::fmt::Debug + Ord
     {
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("========== Parsing ==========");
+        }
+
         let mut runner
             = Runner::<'machine, 'cmds, TCheck, TReducer, TFallback, TState>::new(machine, fallback);
 
@@ -134,6 +138,10 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
             transition.reducer.derive(&mut next_state, transition.to, "");
         }
 
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("  [{}] {} -> {} (reducer: {:?})", from_state.get_context_id(), from_state.get_node_id(), transition.to, transition.reducer);
+        }
+
         self.node_colors[transition.to] = color;
 
         let target_node
@@ -155,6 +163,10 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
         TFallback: Fn(TState, Arg<'args>) -> TState,
         TState: Clone + RunnerState + Debug + Ord
     {
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("{:?}", token);
+        }
+
         let states
             = std::mem::take(&mut self.states);
 

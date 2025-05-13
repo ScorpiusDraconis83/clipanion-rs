@@ -11,16 +11,8 @@ use crate::SelectionResult;
  */
 #[derive(Debug, Clone)]
 pub enum BuiltinCommand<'cmds> {
+    Version,
     Help(Vec<&'cmds CommandSpec>),
-}
-
-/**
- * Represents the parse result of the CLI command.
- */
-#[derive(Debug, Clone)]
-pub enum ParseResult<'cmds, 'args> {
-    Builtin(BuiltinCommand<'cmds>),
-    Selector(Selector<'cmds, 'args>),
 }
 
 #[derive(Debug, Clone)]
@@ -815,11 +807,7 @@ impl<'cmds> CliBuilder<'cmds> {
         machine
     }
 
-    pub fn run<'args>(&self, args: &[&'args str]) -> Result<ParseResult<'cmds, 'args>, Error<'cmds>> {
-        if args == vec!["--help"] || args == vec!["-h"] {
-            return Ok(ParseResult::Builtin(BuiltinCommand::Help(vec![])));
-        }
-
+    pub fn run<'args>(&self, args: &[&'args str]) -> Result<Selector<'cmds, 'args>, Error<'cmds>> {
         fn on_error<'args>(mut state: State<'args>, _: Arg<'args>) -> State<'args> {
             state.set_node_id(ERROR_NODE_ID);
             state
@@ -832,9 +820,9 @@ impl<'cmds> CliBuilder<'cmds> {
             = runner::Runner::run(&machine, on_error, args).unwrap();
         
         let selector: Selector<'cmds, 'args>
-            = Selector::new(self.commands.clone(), states);
+            = Selector::new(self.commands.clone(), args.to_vec(), states);
 
-        Ok(ParseResult::Selector(selector))
+        Ok(selector)
     }
 }
 
@@ -854,7 +842,7 @@ fn it_should_select_the_default_command_when_using_no_arguments() {
     let result
         = cli_builder.run(&[""; 0]);
 
-    let Ok(ParseResult::Selector(mut selector)) = result else {
+    let Ok(mut selector) = result else {
         panic!("Expected a selector result");
     };
 
@@ -887,7 +875,7 @@ fn it_should_select_the_default_command_when_using_mandatory_positional_argument
     let result
         = cli_builder.run(&["foo", "bar"]);
 
-    let Ok(ParseResult::Selector(mut selector)) = result else {
+    let Ok(mut selector) = result else {
         panic!("Expected a selector result");
     };
 
@@ -924,7 +912,7 @@ fn it_should_select_commands_by_their_path() {
     let result
         = cli_builder.run(&["foo"]);
 
-    let Ok(ParseResult::Selector(mut selector)) = result else {
+    let Ok(mut selector) = result else {
         panic!("Expected a selector result");
     };
 
@@ -940,7 +928,7 @@ fn it_should_select_commands_by_their_path() {
     let result
         = cli_builder.run(&["bar"]);
 
-    let Ok(ParseResult::Selector(mut selector)) = result else {
+    let Ok(mut selector) = result else {
         panic!("Expected a selector result");
     };
 
@@ -977,7 +965,7 @@ fn it_should_favor_paths_over_mandatory_positional_arguments() {
     let result
         = cli_builder.run(&["foo"]);
 
-    let Ok(ParseResult::Selector(mut selector)) = result else {
+    let Ok(mut selector) = result else {
         panic!("Expected a selector result");
     };
 
@@ -1014,7 +1002,7 @@ fn it_should_favor_paths_over_optional_positional_arguments() {
     let result
         = cli_builder.run(&["foo"]);
 
-    let Ok(ParseResult::Selector(mut selector)) = result else {
+    let Ok(mut selector) = result else {
         panic!("Expected a selector result");
     };
 
@@ -1058,7 +1046,7 @@ fn it_should_favor_paths_filling_early_positional_arguments() {
     let result
         = cli_builder.run(&["foo", "bar", "baz"]);
 
-    let Ok(ParseResult::Selector(mut selector)) = result else {
+    let Ok(mut selector) = result else {
         panic!("Expected a selector result");
     };
 
@@ -1091,7 +1079,7 @@ fn it_should_aggregate_positional_values() {
     let result
         = cli_builder.run(&["foo", "bar"]);
 
-    let Ok(ParseResult::Selector(mut selector)) = result else {
+    let Ok(mut selector) = result else {
         panic!("Expected a selector result");
     };
 
@@ -1127,7 +1115,7 @@ fn it_should_aggregate_positional_values_with_rest() {
     let result
         = cli_builder.run(&["foo", "bar", "baz"]);
 
-    let Ok(ParseResult::Selector(mut selector)) = result else {
+    let Ok(mut selector) = result else {
         panic!("Expected a selector result");
     };
 

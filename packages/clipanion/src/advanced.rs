@@ -16,8 +16,29 @@ use crate::{details::{CliEnums, CommandExecutor, CommandExecutorAsync, CommandPr
  }
  
 impl Environment {
-    pub fn with_argv(self, argv: Vec<String>) -> Self {
-        Self {argv, ..self.clone()}
+    pub fn with_program_name(mut self, program_name: String) -> Self {
+        self.info.program_name = program_name;
+        self
+    }
+
+    pub fn with_binary_name(mut self, binary_name: String) -> Self {
+        self.info.binary_name = binary_name;
+        self
+    }
+
+    pub fn with_version(mut self, version: String) -> Self {
+        self.info.version = version;
+        self
+    }
+
+    pub fn with_about(mut self, about: String) -> Self {
+        self.info.about = about;
+        self
+    }
+
+    pub fn with_argv(mut self, argv: Vec<String>) -> Self {
+        self.argv = argv;
+        self
     }
 }
 
@@ -36,10 +57,10 @@ impl Default for Environment {
         Self {
             argv,
             info: Info {
-                program_name: env!("CARGO_PKG_NAME").to_string(),
+                program_name: "my-program".to_string(),
                 binary_name,
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                about: env!("CARGO_PKG_DESCRIPTION").to_string(),
+                version: "1.0.0".to_string(),
+                about: "my-program is a program that does something".to_string(),
                 colorized: true,
             },
         }

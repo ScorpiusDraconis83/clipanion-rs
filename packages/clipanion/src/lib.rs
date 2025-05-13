@@ -56,16 +56,8 @@ macro_rules! program_provider {
                         .map(|s| s.as_str())
                         .collect::<Vec<_>>();
 
-                let parse_result
+                let mut selector
                     = builder.run(&argv)?;
-
-                if let $crate::core::ParseResult::Builtin(builtin) = parse_result {
-                    return Ok($crate::core::SelectionResult::Builtin(builtin));
-                }
-
-                let $crate::core::ParseResult::Selector(mut selector) = parse_result else {
-                    unreachable!("Expected a selector result");
-                };
 
                 const FNS: &[fn(&$crate::advanced::Environment, &$crate::core::State<'_>) -> Result<<$name as ::clipanion::details::CliEnums>::PartialEnum, $crate::core::CommandError>] = &[
                     $(|environment, state| {
@@ -94,7 +86,10 @@ macro_rules! program_provider {
 
                 $(builder.add_command(<$command>::command_spec()?);)*
 
-                // println!("{:?}", builder.compile());
+                if std::env::var("CLIPANION_DEBUG").is_ok() {
+                    println!("========== CLI State Machine ==========");
+                    println!("{:?}", builder.compile());
+                }
 
                 Ok(builder)
             }
