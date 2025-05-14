@@ -116,19 +116,28 @@ fn handle_builtin<S: CommandProvider>(builtin: BuiltinCommand, env: &Environment
             }
 
             let mut commands_by_category
-                = HashMap::new();
+                = HashMap::<_, Vec<_>>::new();
 
             for command in &commands {
-                let category = command.category
-                    .as_ref()
-                    .map(|category| category.as_ref());
+                if command.description.is_some() {
+                    let category = command.category
+                        .as_ref()
+                        .map(|category| category.as_ref());
 
-                commands_by_category.entry(category)
-                    .or_insert_with(Vec::new)
-                    .push(command);
+                    commands_by_category.entry(category)
+                        .or_default()
+                        .push(command);
+                }
             }
 
-            for (category, commands) in &commands_by_category {
+            let mut categories = commands_by_category.into_iter()
+                .collect::<Vec<_>>();
+
+            categories.sort_by(|a, b| {
+                a.0.cmp(&b.0)
+            });
+
+            for (category, commands) in &categories {
                 let category = category
                     .unwrap_or("General commands");
 

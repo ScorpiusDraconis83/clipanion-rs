@@ -704,6 +704,32 @@ impl<'cmds> CommandBuilderContext<'cmds> {
         current_node_id
             = self.attach_positionals(current_node_id, &prefix_components);
 
+        let is_first_positional_a_proxy
+            = self.spec.components.iter()
+                .find_map(|component| if let Component::Positional(PositionalSpec::Dynamic {is_prefix, is_proxy, ..}) = component {(!is_prefix).then_some(*is_proxy)} else {None})
+                .unwrap_or(false);
+
+        let help_node_id = is_first_positional_a_proxy.then(|| {
+            let consumer_node_id
+                = self.machine.create_node();
+
+            self.machine.register_dynamic(
+                consumer_node_id,
+                None,
+                consumer_node_id,
+                None,
+            );
+
+            self.machine.register_static(
+                consumer_node_id,
+                Arg::EndOfInput,
+                SUCCESS_NODE_ID,
+                Some(Reducer::EnableHelp),
+            );
+
+            consumer_node_id
+        });
+
         if !self.spec.paths.is_empty() && !self.spec.paths.iter().all(|path| path.is_empty()) {
             let post_paths_node_id
                 = self.machine.create_node();
@@ -727,6 +753,22 @@ impl<'cmds> CommandBuilderContext<'cmds> {
                         current_path_node_id
                             = self.attach_options(post_segment_node_id);
                     }
+
+                    if let Some(help_node_id) = help_node_id {
+                        self.machine.register_static(
+                            current_path_node_id,
+                            Arg::User("--help"),
+                            help_node_id,
+                            Some(Reducer::IncreaseStaticCount),
+                        );
+        
+                        self.machine.register_static(
+                            current_path_node_id,
+                            Arg::User("-h"),
+                            help_node_id,
+                            Some(Reducer::IncreaseStaticCount),
+                        );
+                    }
                 }
 
                 self.machine.register_shortcut(
@@ -738,42 +780,10 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             current_node_id = post_paths_node_id;
         }
 
-        let is_first_positional_a_proxy
-            = self.spec.components.iter()
-                .find_map(|component| if let Component::Positional(PositionalSpec::Dynamic {is_prefix, is_proxy, ..}) = component {(!is_prefix).then_some(*is_proxy)} else {None})
-                .unwrap_or(false);
-
         if !is_first_positional_a_proxy {
             let post_path_help_node_id
                 = self.machine.create_node();
 
-            self.machine.register_static(
-                current_node_id,
-                Arg::User("--help"),
-                post_path_help_node_id,
-                Some(Reducer::IncreaseStaticCount),
-            );
-
-            self.machine.register_static(
-                current_node_id,
-                Arg::User("-h"),
-                post_path_help_node_id,
-                Some(Reducer::IncreaseStaticCount),
-            );
-
-            self.machine.register_dynamic(
-                post_path_help_node_id,
-                None,
-                post_path_help_node_id,
-                None,
-            );
-
-            self.machine.register_static(
-                post_path_help_node_id,
-                Arg::EndOfInput,
-                SUCCESS_NODE_ID,
-                Some(Reducer::EnableHelp),
-            );
         }
 
         current_node_id
