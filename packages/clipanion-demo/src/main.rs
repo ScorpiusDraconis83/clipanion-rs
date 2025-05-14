@@ -34,6 +34,7 @@ impl FromStr for HexColor {
 #[derive(Debug)]
 #[cli::command]
 #[cli::path("cp")]
+#[cli::description("Copy files and directories")]
 struct Cp {
     #[cli::option("-r,--recursive", help = "Copy directories recursively", default = false)]
     recursive: bool,

@@ -119,6 +119,8 @@ pub trait CommandProvider {
     type Command;
 
     fn command_usage(command_index: usize, opts: clipanion_core::CommandUsageOptions) -> Result<clipanion_core::CommandUsageResult, clipanion_core::BuildError>;
+
+    fn registered_commands() -> Result<Vec<&'static CommandSpec>, clipanion_core::BuildError>;
     fn parse_args<'args>(builder: &clipanion_core::CliBuilder<'static>, environment: &'args Environment) -> Result<SelectionResult<'static, 'args, Self::PartialEnum>, clipanion_core::Error<'args>> where Self: Sized + CliEnums;
     fn build_cli() -> Result<clipanion_core::CliBuilder<'static>, clipanion_core::BuildError>;
 }

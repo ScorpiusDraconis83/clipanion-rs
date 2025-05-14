@@ -118,10 +118,28 @@ pub struct CliAttributes {
 }
 
 impl CliAttributes {
-    fn parse_args<T: Default + Parse>(attr: &Attribute) -> syn::Result<T> {
+    fn parse_args<T: Parse>(attr: &Attribute) -> syn::Result<T> {
         match attr.meta {
-            Meta::Path(_) => Ok(T::default()),
-            _ => attr.parse_args::<T>(),
+            Meta::Path(_) => {
+                let meta = Meta::List(syn::MetaList {
+                    path: syn::Path::from(Ident::new("positional", proc_macro2::Span::call_site())),
+                    delimiter: syn::MacroDelimiter::Paren(syn::token::Paren::default()),
+                    tokens: proc_macro2::TokenStream::new(),
+                });
+
+                let attribute = Attribute {
+                    pound_token: Default::default(),
+                    style: syn::AttrStyle::Outer,
+                    bracket_token: Default::default(),
+                    meta: meta,
+                };
+
+                attribute.parse_args::<T>()
+            },
+
+            _ => {
+                attr.parse_args::<T>()
+            },
         }
     }
 
@@ -152,7 +170,7 @@ impl CliAttributes {
         Ok(cli_attributes)
     }
 
-    pub fn take_unique<T: Default + Parse>(&mut self, key: &str) -> syn::Result<Option<T>> {
+    pub fn take_unique<T: Parse>(&mut self, key: &str) -> syn::Result<Option<T>> {
         match self.attributes.remove(key) {
             Some(values) => {
                 if values.len() > 1 {

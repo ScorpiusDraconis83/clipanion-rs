@@ -91,9 +91,8 @@ fn gen_random_command_spec<R: Rng>(rng: &mut R) -> CommandSpec {
     }
 
     CommandSpec {
-        paths: vec![],
         components,
-        required_options: vec![],
+        ..Default::default()
     }
 }
 

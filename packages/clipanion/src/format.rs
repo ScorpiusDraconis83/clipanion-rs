@@ -5,6 +5,59 @@ use colored::Colorize;
 
 use crate::details::CommandProvider;
 
+use std::collections::HashMap;
+use std::env;
+use std::fmt::Write;
+
+pub fn format_fading_title_line(title: &str, total_length: usize, fade_len: usize) -> String {
+    // Background target map (RGB)
+    let target_colors: HashMap<&'static str, (u8, u8, u8)> = [
+        ("ghostty", (39, 45, 52)),
+        ("xterm",   (0, 0, 0)),
+    ].iter().cloned().collect();
+
+    let term_program = env::var("TERM_PROGRAM").unwrap_or_default().to_lowercase();
+    let (r_target, g_target, b_target) = target_colors
+        .get(term_program.as_str())
+        .copied()
+        .unwrap_or((0, 0, 0)); // Default: black
+
+    // Decorative left part
+    let left = "━━━ ";
+    let title_str = format!("{}{} ", left, title);
+    let visible_len = title_str.chars().count();
+
+    // Calculate how many ━ are needed on the right
+    let remaining = total_length.saturating_sub(visible_len);
+    let fade_len = fade_len.min(remaining);
+    let solid_len = remaining.saturating_sub(fade_len);
+
+    let mut output = String::new();
+    output.push_str("\x1b[1m"); // Bold
+    output.push_str(&title_str);
+
+    // Solid ━ characters before the fade starts
+    for _ in 0..solid_len {
+        output.push('━');
+    }
+
+    // Fading right side (from white to target background color)
+    for i in 0..fade_len {
+        let t = i as f32 / fade_len as f32;
+        let r = ((1.0 - t) * 255.0 + t * r_target as f32) as u8;
+        let g = ((1.0 - t) * 255.0 + t * g_target as f32) as u8;
+        let b = ((1.0 - t) * 255.0 + t * b_target as f32) as u8;
+
+        let _ = write!(
+            output,
+            "\x1b[38;2;{r};{g};{b}m━"
+        );
+    }
+
+    output.push_str("\x1b[0m"); // Reset
+    output
+}
+
 pub struct Formatter<S> {
     phantom: PhantomData<S>,
 }

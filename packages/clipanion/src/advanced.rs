@@ -1,8 +1,8 @@
-use std::future::Future;
+use std::{collections::HashMap, future::Future};
 
-use clipanion_core::{Info, SelectionResult};
+use clipanion_core::{BuiltinCommand, CommandSpec, Info, SelectionResult};
 
-use crate::{details::{CliEnums, CommandExecutor, CommandExecutorAsync, CommandProvider}, format::Formatter};
+use crate::{details::{CliEnums, CommandExecutor, CommandExecutorAsync, CommandProvider}, format::{format_fading_title_line, Formatter}};
 
 /**
  * Used to define the properties of the CLI. In general you can ignore this and
@@ -90,6 +90,74 @@ fn report_error<'cmds, 'args, S: CommandProvider>(env: &Environment, err: clipan
     }
 }
 
+fn handle_builtin<S: CommandProvider>(builtin: BuiltinCommand, env: &Environment) -> std::process::ExitCode {
+    match builtin {
+        BuiltinCommand::Version => {
+            println!("{}", env.info.version);
+            std::process::ExitCode::SUCCESS
+        },
+
+        BuiltinCommand::Help(commands) => {
+            println!("{}", format_fading_title_line(&format!("{} - {}", env.info.program_name, env.info.version), 80, 50));
+
+            let commands = match commands.is_empty() {
+                true => S::registered_commands().unwrap(),
+                false => commands,
+            };
+
+            let default_command
+                = commands.iter()
+                    .find(|command| command.is_default())
+                    .cloned();
+
+            if let Some(default_command) = default_command {
+                println!("");
+                println!("  {}", default_command.usage().oneliner(&env.info));
+            }
+
+            let mut commands_by_category
+                = HashMap::new();
+
+            for command in &commands {
+                let category = command.category
+                    .as_ref()
+                    .map(|category| category.as_ref());
+
+                commands_by_category.entry(category)
+                    .or_insert_with(Vec::new)
+                    .push(command);
+            }
+
+            for (category, commands) in &commands_by_category {
+                let category = category
+                    .unwrap_or("General commands");
+
+                println!("");
+                println!("{}", format_fading_title_line(category, 80, 50));
+
+                let mut commands_and_paths
+                    = commands.into_iter()
+                        .map(|command| (command.longest_path(), command))
+                        .collect::<Vec<_>>();
+
+                commands_and_paths.sort_by(|a, b| {
+                    a.0.cmp(&b.0)
+                });
+
+                for command in commands {
+                    if let Some(usage) = &command.description {
+                        println!("");
+                        println!("  \x1b[1m{}\x1b[0m", command.usage().oneliner(&env.info));
+                        println!("    {}", usage);
+                    }
+                }
+            }
+
+            std::process::ExitCode::SUCCESS
+        },
+    }
+}
+
 pub trait Cli {
     fn run(env: Environment) -> std::process::ExitCode;
     fn run_default() -> std::process::ExitCode;
@@ -104,8 +172,8 @@ impl<S> Cli for S where S: CliEnums + CommandProvider, S::Enum: CommandExecutor 
             = S::parse_args(&builder, &env);
 
         match parse_result {
-            Ok(SelectionResult::Builtin(_command)) => {
-                todo!()
+            Ok(SelectionResult::Builtin(builtin)) => {
+                handle_builtin::<S>(builtin, &env)
             },
 
             Ok(SelectionResult::Command(command_spec, _, partial_command)) => {
@@ -152,8 +220,8 @@ impl<S> CliAsync for S where S: CliEnums + CommandProvider, S::Enum: CommandExec
             = S::parse_args(&builder, &env);
 
         match parse_result {
-            Ok(SelectionResult::Builtin(_command)) => {
-                todo!()
+            Ok(SelectionResult::Builtin(builtin)) => {
+                handle_builtin::<S>(builtin, &env)
             },
 
             Ok(SelectionResult::Command(command_spec, _, partial_command)) => {

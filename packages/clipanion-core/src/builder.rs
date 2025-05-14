@@ -388,6 +388,9 @@ impl std::fmt::Display for Component {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CommandSpec {
+    pub category: Option<String>,
+    pub description: Option<String>,
+    pub details: Option<String>,
     pub paths: Vec<Vec<String>>,
     pub components: Vec<Component>,
     pub required_options: Vec<usize>,
@@ -415,6 +418,17 @@ impl std::fmt::Display for CommandSpec {
 }
 
 impl CommandSpec {
+    pub fn is_default(&self) -> bool {
+        self.paths.is_empty() || self.paths.iter().all(|path| path.is_empty())
+    }
+
+    pub fn longest_path(&self) -> Vec<&str> {
+        self.paths.iter()
+            .max_by_key(|path| path.len())
+            .map(|path| path.iter().map(|segment| segment.as_ref()).collect())
+            .unwrap_or_default()
+    }
+
     pub fn usage(&self) -> CommandUsageResult {
         CommandUsageResult::new(self.clone())
     }
@@ -832,9 +846,7 @@ fn it_should_select_the_default_command_when_using_no_arguments() {
         = CliBuilder::new();
 
     let spec = CommandSpec {
-        paths: vec![],
-        components: vec![],
-        required_options: vec![],
+        ..Default::default()
     };
 
     cli_builder.add_command(&spec);
@@ -862,12 +874,11 @@ fn it_should_select_the_default_command_when_using_mandatory_positional_argument
         = CliBuilder::new();
 
     let spec = CommandSpec {
-        paths: vec![],
         components: vec![
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::required()),
         ],
-        required_options: vec![],
+        ..Default::default()
     };
 
     cli_builder.add_command(&spec);
@@ -895,15 +906,13 @@ fn it_should_select_commands_by_their_path() {
         = CliBuilder::new();
 
     let spec1 = CommandSpec {
-        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
-        required_options: vec![],
+        ..Default::default()
     };
 
     let spec2 = CommandSpec {
-        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("bar"))],
-        required_options: vec![],
+        ..Default::default()
     };
 
     cli_builder.add_command(&spec1);
@@ -948,15 +957,13 @@ fn it_should_favor_paths_over_mandatory_positional_arguments() {
         = CliBuilder::new();
 
     let spec1 = CommandSpec {
-        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::required())],
-        required_options: vec![],
+        ..Default::default()
     };
 
     let spec2 = CommandSpec {
-        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
-        required_options: vec![],
+        ..Default::default()
     };
 
     cli_builder.add_command(&spec1);
@@ -985,15 +992,13 @@ fn it_should_favor_paths_over_optional_positional_arguments() {
         = CliBuilder::new();
 
     let spec1 = CommandSpec {
-        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::optional())],
-        required_options: vec![],
+        ..Default::default()
     };
 
     let spec2 = CommandSpec {
-        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::keyword("foo"))],
-        required_options: vec![],
+        ..Default::default()
     };
 
     cli_builder.add_command(&spec1);
@@ -1022,21 +1027,18 @@ fn it_should_favor_paths_filling_early_positional_arguments() {
         = CliBuilder::new();
 
     let spec1 = CommandSpec {
-        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::optional()), Component::Positional(PositionalSpec::rest())],
-        required_options: vec![],
+        ..Default::default()
     };
 
     let spec2 = CommandSpec {
-        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::optional()), Component::Positional(PositionalSpec::optional()), Component::Positional(PositionalSpec::rest())],
-        required_options: vec![],
+        ..Default::default()
     };
 
     let spec3 = CommandSpec {
-        paths: vec![],
         components: vec![Component::Positional(PositionalSpec::rest())],
-        required_options: vec![],
+        ..Default::default()
     };
 
     cli_builder.add_command(&spec1);
@@ -1066,12 +1068,11 @@ fn it_should_aggregate_positional_values() {
         = CliBuilder::new();
 
     let spec = CommandSpec {
-        paths: vec![],
         components: vec![
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::required()),
         ],
-        required_options: vec![],
+        ..Default::default()
     };
 
     cli_builder.add_command(&spec);
@@ -1102,12 +1103,11 @@ fn it_should_aggregate_positional_values_with_rest() {
         = CliBuilder::new();
 
     let spec = CommandSpec {
-        paths: vec![],
         components: vec![
             Component::Positional(PositionalSpec::required()),
             Component::Positional(PositionalSpec::rest()),
         ],
-        required_options: vec![],
+        ..Default::default()
     };
 
     cli_builder.add_command(&spec);

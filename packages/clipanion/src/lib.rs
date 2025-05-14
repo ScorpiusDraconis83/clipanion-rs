@@ -50,6 +50,12 @@ macro_rules! program_provider {
                 FNS[command_index](opts)
             }
 
+            fn registered_commands() -> Result<Vec<&'static $crate::core::CommandSpec>, $crate::core::BuildError> {
+                Ok(vec![
+                    $(<$command>::command_spec()?),*
+                ])
+            }
+
             fn parse_args<'args>(builder: &$crate::core::CliBuilder<'static>, environment: &'args $crate::advanced::Environment) -> Result<$crate::core::SelectionResult<'static, 'args, <$name as $crate::details::CliEnums>::PartialEnum>, $crate::core::Error<'args>> where $name: $crate::details::CliEnums {
                 let argv
                     = environment.argv.iter()
@@ -152,7 +158,8 @@ macro_rules! test_cli_failure {
             const ARGS: &[&str] = $args;
 
             let cli = $cli_name::build_cli().unwrap();
-            let env = $crate::advanced::Environment::default().with_argv(ARGS.iter().map(|s| s.to_string()).collect());
+            let env = $crate::advanced::Environment::default()
+                .with_argv(ARGS.iter().map(|s| s.to_string()).collect());
 
             println!("cli: {:?}", cli.compile());
 

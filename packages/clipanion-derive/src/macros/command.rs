@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
-use syn::{Attribute, DeriveInput, Expr, ExprLit, Fields, Ident, Lit, Meta, Path};
+use syn::{Attribute, DeriveInput, Expr, ExprLit, Fields, Ident, Lit, LitStr, Meta, Path};
 
 use crate::utils::{to_lit_str, AttributeBag, CliAttributes, OptionBag};
 
@@ -30,6 +30,14 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
     let mut command_attribute_bag
         = syn::parse::<AttributeBag>(args)?;
+
+    let command_category = command_cli_attributes
+        .take_unique::<LitStr>("category")?
+        .map(|lit| quote!{command_spec.category = Some(#lit.to_string());});
+
+    let command_description = command_cli_attributes
+        .take_unique::<LitStr>("description")?
+        .map(|lit| quote!{command_spec.description = Some(#lit.to_string());});
 
     let is_default = command_attribute_bag.take("default")
         .map(expect_lit!(Lit::Bool))
@@ -467,6 +475,9 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 static COMMAND_SPEC: LazyLock<Result<clipanion::core::CommandSpec, clipanion::core::BuildError>> = LazyLock::new(|| {
                     let mut command_spec
                         = clipanion::core::CommandSpec::default();
+
+                    #command_category
+                    #command_description
 
                     #(#builder)*
 
