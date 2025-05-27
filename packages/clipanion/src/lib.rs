@@ -51,6 +51,8 @@ macro_rules! program_provider {
             }
 
             fn registered_commands() -> Result<Vec<&'static $crate::core::CommandSpec>, $crate::core::BuildError> {
+                use $crate::details::CommandController;
+
                 Ok(vec![
                     $(<$command>::command_spec()?),*
                 ])
