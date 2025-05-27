@@ -179,6 +179,8 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
         // indexes are now the highest values, and allowing us to use the
         // default `max_by` function to sort on both indexes and value count.
         //
+        // Note: it's -x-1 (and not -x) because otherwise 0 would remain 0.
+        //
         let mut states_with_positional_tracks = owned_candidates.into_iter().map(|id| {
             let positional_track = self.states[id].positional_values.iter().map(|(idx, values)| {
                 (idx.wrapping_neg().wrapping_sub(1), values.len())
@@ -188,7 +190,7 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
         }).collect::<Vec<_>>();
 
         states_with_positional_tracks.sort_by(|a, b| {
-            b.1.first().unwrap().cmp(a.1.first().unwrap())
+            b.1.cmp(&a.1)
         });
 
         // We're now going to remove all the entries except for the first
