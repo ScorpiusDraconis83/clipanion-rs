@@ -81,6 +81,7 @@ impl<'args> RunnerState for State<'args> {
 pub enum Check<'cmds> {
     IsOption(&'cmds str),
     IsOptionLike,
+    IsOptionBinding(&'cmds str),
     IsNotOptionLike,
 }
 
@@ -89,6 +90,10 @@ impl<'cmds, 'args> ValidateTransition<'args, State<'args>> for Check<'cmds> {
         match self {
             Check::IsOption(name) => {
                 !state.post_double_slash && arg == *name
+            },
+
+            Check::IsOptionBinding(name) => {
+                !state.post_double_slash && arg.starts_with(name) && arg.chars().nth(name.len()) == Some('=')
             },
 
             Check::IsOptionLike => {
@@ -115,6 +120,7 @@ pub enum Reducer {
     IncreaseStaticCount,
     StartValue(Attachment, usize),
     PushValue(Attachment),
+    BindValue(usize, usize),
 }
 
 impl<'args> DeriveState<'args, State<'args>> for Reducer {
@@ -158,6 +164,10 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
                         }
                     },
                 }
+            },
+
+            Reducer::BindValue(skip_len, option_id) => {
+                state.option_values.push((*option_id, vec![&token[*skip_len + 1..]]));
             },
         }
     }
@@ -547,6 +557,15 @@ impl<'cmds> CommandBuilderContext<'cmds> {
                     );
 
                     self.exit_inhibit_options();
+
+                    if option.min_len + option.extra_len.unwrap_or(0) == 1 {
+                        self.machine.register_dynamic(
+                            pre_options_node_id,
+                            Some(Check::IsOptionBinding(name)),
+                            post_option_node_id,
+                            Some(Reducer::BindValue(name.len(), option_id)),
+                        );
+                    }
                 }
 
                 self.machine.register_shortcut(
