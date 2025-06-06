@@ -139,8 +139,14 @@ macro_rules! test_cli_success {
             let result = result
                 .unwrap_or_else(|err| panic!("expected command, got error: {:?}", err));
 
-            let $crate::core::SelectionResult::Command(_, _, command) = result else {
-                unreachable!("expected command, got something else");
+            let command = match result {
+                $crate::core::SelectionResult::Builtin(builtin) => {
+                    panic!("expected command, got builtin: {:?}", builtin);
+                },
+
+                $crate::core::SelectionResult::Command(_, _, command) => {
+                    command
+                },
             };
 
             let command

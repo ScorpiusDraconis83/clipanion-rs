@@ -307,6 +307,7 @@ pub struct OptionSpec {
     pub extra_len: Option<usize>,
 
     pub allow_binding: bool,
+    pub allow_boolean: bool,
     pub is_hidden: bool,
     pub is_required: bool,
 }
@@ -322,6 +323,7 @@ impl OptionSpec {
             extra_len: Some(0),
             
             allow_binding: false,
+            allow_boolean: true,
             is_hidden: false,
             is_required: true,
         }
@@ -337,6 +339,7 @@ impl OptionSpec {
             extra_len: Some(0),
             
             allow_binding: false,
+            allow_boolean: false,
             is_hidden: false,
             is_required: true,
         }
@@ -525,6 +528,13 @@ impl<'cmds> CommandBuilderContext<'cmds> {
                 let accepts_arguments
                     = option.min_len > 0 || option.extra_len != Some(0);
 
+                if option.allow_boolean && accepts_arguments && option.min_len > 0 {
+                    self.machine.register_shortcut(
+                        post_option_node_id,
+                        pre_options_node_id,
+                    );
+                }
+
                 if accepts_arguments {
                     self.enter_inhibit_options();
 
@@ -709,7 +719,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
                 .find_map(|component| if let Component::Positional(PositionalSpec::Dynamic {is_prefix, is_proxy, ..}) = component {(!is_prefix).then_some(*is_proxy)} else {None})
                 .unwrap_or(false);
 
-        let help_node_id = is_first_positional_a_proxy.then(|| {
+        let help_node_id = (!is_first_positional_a_proxy).then(|| {
             let consumer_node_id
                 = self.machine.create_node();
 
@@ -778,12 +788,6 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             }
 
             current_node_id = post_paths_node_id;
-        }
-
-        if !is_first_positional_a_proxy {
-            let post_path_help_node_id
-                = self.machine.create_node();
-
         }
 
         current_node_id

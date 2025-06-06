@@ -215,6 +215,51 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
             .collect::<Vec<_>>();
     }
 
+    fn prune_by_unused_positionals<'a>(&mut self) {
+        let mut states_with_unused_positional_count
+            = self.candidates.iter()
+                .map(|&candidate_id| {
+                    let state
+                        = &self.states[candidate_id];
+
+                    let command
+                        = self.commands[state.context_id];
+
+                    let mut seen
+                        = vec![false; command.components.len()];
+
+                    for (idx, _) in state.positional_values.iter() {
+                        seen[*idx] = true;
+                    }
+
+                    let unused_positionals_count = command.components.iter()
+                        .enumerate()
+                        .filter(|(_, component)| matches!(component, Component::Positional(_)))
+                        .filter(|(idx, _)| !seen[*idx])
+                        .count();
+
+                    (candidate_id, unused_positionals_count)
+                })
+                .collect::<Vec<_>>();
+
+        states_with_unused_positional_count.sort_by_key(|(_, unused_positionals_count)| {
+            *unused_positionals_count
+        });
+
+        let (_, min_unused_positional_count)
+            = states_with_unused_positional_count.first()
+                .expect("Expected at least one state")
+                .clone();
+
+        states_with_unused_positional_count.retain(|(_, unused_positionals_count)| {
+            *unused_positionals_count == min_unused_positional_count
+        });
+
+        self.candidates = states_with_unused_positional_count.into_iter()
+            .map(|(id, _)| id)
+            .collect();
+    }
+
     fn handle_everything_is_an_error<T>(&mut self) -> Result<SelectionResult<'cmds, 'args, T>, Error<'cmds>> {
         if self.args == vec!["--version"] {
             return Ok(SelectionResult::Builtin(BuiltinCommand::Version));
@@ -312,6 +357,12 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
 
         if std::env::var("CLIPANION_DEBUG").is_ok() {
             println!("after prune_by_greediness: {:?}", self.candidates);
+        }
+
+        self.prune_by_unused_positionals();
+
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("after prune_by_empty_positional_values: {:?}", self.candidates);
         }
 
         let owned_candidates

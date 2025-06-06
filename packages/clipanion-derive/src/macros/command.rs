@@ -91,6 +91,8 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
         let mut internal_field_type = &field.ty;
         let mut is_option_type = false;
+        // Option<Option<T>>; means both --foo without arguments, or --foo arg1 arg2 with arguments, are valid
+        let mut is_option2_type = false;
         let mut is_vec_type = false;
 
         if let syn::Type::Path(type_path) = &internal_field_type {
@@ -100,6 +102,18 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     if let syn::GenericArgument::Type(ty) = &args.args[0] {
                         internal_field_type = ty;
                         is_option_type = true;
+                    }
+                }
+            }
+
+            if let syn::Type::Path(type_path) = &internal_field_type {
+                if &type_path.path.segments[0].ident == "Option" {
+                    let inner_type = &type_path.path.segments[0].arguments;
+                    if let syn::PathArguments::AngleBracketed(args) = inner_type {
+                        if let syn::GenericArgument::Type(ty) = &args.args[0] {
+                            internal_field_type = ty;
+                            is_option2_type = true;
+                        }
                     }
                 }
             }
@@ -190,7 +204,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 None => quote! {None},
             };
 
-            let value_converter = if is_vec_type {
+            let mut value_converter = if is_vec_type {
                 if is_tuple {
                     let mut tuple_fields = vec![];
 
@@ -232,6 +246,16 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     s.parse().map_err(clipanion::details::handle_parse_error)
                 }).transpose()?}
             };
+
+            if is_option2_type {
+                value_converter = quote! {
+                    if args.is_empty() {
+                        Some(None)
+                    } else {
+                        Some(#value_converter)
+                    }
+                };
+            }
 
             let none_expr: Expr
                 = syn::parse_str("None").unwrap();
@@ -306,10 +330,48 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     is_hidden: false,
                     is_required: #is_required,
                     allow_binding: false,
+                    allow_boolean: #is_option2_type,
                     min_len: #min_len_lit,
                     extra_len: #extra_len_lit,
                 }));
             });
+
+            if !is_required {
+                let no_option_names = option_bag.path
+                    .iter()
+                    .filter(|name| name.starts_with("--") && !name.starts_with("--no-"))
+                    .map(|name| format!("--no-{}", &name[2..]))
+                    .collect::<Vec<_>>();
+
+                for no_option_name in no_option_names {
+                    let no_option_name_lit
+                        = LitStr::new(&no_option_name, Span::call_site());
+
+                    if is_option_type || is_vec_type {
+                        hydraters.push(quote! {
+                            partial.#field_ident = Default::default();
+                        });
+                    } else {
+                        hydraters.push(quote! {
+                            partial.#field_ident = Some(Default::default());
+                        });
+                    }
+
+                    builder.push(quote! {
+                        command_spec.components.push(clipanion::core::Component::Option(clipanion::core::OptionSpec {
+                            primary_name: #no_option_name_lit.to_string(),
+                            aliases: vec![],
+                            description: "".to_string(),
+                            is_hidden: true,
+                            is_required: false,
+                            allow_binding: false,
+                            allow_boolean: false,
+                            min_len: 0,
+                            extra_len: Some(0),
+                        }));
+                    });
+                }
+            }
 
             option_bag.attributes.expect_empty()?;
         } else if let Some(mut positional_bag) = cli_attributes.take_unique::<AttributeBag>("positional")? {

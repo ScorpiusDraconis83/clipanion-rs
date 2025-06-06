@@ -85,7 +85,9 @@ pub fn cli_enum_macro(types: Punctuated<syn::Path, syn::Token![,]>, item: syn::I
         }
 
         from_match_arms.push(quote!{
-            #partial_enum_ident::#variant_ident(inner) => #ty::try_from(inner).map(Into::into),
+            #partial_enum_ident::#variant_ident(inner) => {
+                #ty::try_from(inner).map(Into::into)
+            },
         });
 
         trait_impls.push(quote!{
@@ -104,8 +106,13 @@ pub fn cli_enum_macro(types: Punctuated<syn::Path, syn::Token![,]>, item: syn::I
             impl ::core::convert::From<#enum_ident> for #ty {
                 fn from(value: #enum_ident) -> Self {
                     match value {
-                        #enum_ident::#variant_ident(value) => value,
-                        _ => unreachable!("expected {}, got something else", stringify!(#enum_ident)),
+                        #enum_ident::#variant_ident(value) => {
+                            value
+                        },
+
+                        _ => {
+                            unreachable!("expected {}, got something else", stringify!(#enum_ident))
+                        },
                     }
                 }
             }

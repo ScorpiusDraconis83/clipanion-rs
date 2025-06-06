@@ -74,6 +74,7 @@ fn gen_random_option_spec<R: Rng>(rng: &mut R) -> OptionSpec {
         min_len: rng.random_range(0..3),
         extra_len: gen_optional(rng, |rng| rng.random_range(0..3)),
         allow_binding: rng.random_bool(0.5),
+        allow_boolean: rng.random_bool(0.5),
         is_hidden: false,
         is_required: rng.random_bool(0.5),
     }
@@ -129,7 +130,13 @@ fn gen_random_command_values<R: Rng>(rng: &mut R, command_spec: &CommandSpec) ->
 
             Component::Option(option_spec) => {
                 for _ in 0..rng.random_range(0..=3) {
-                    values.push((i, gen_random_values(rng, option_spec.min_len, option_spec.extra_len)));
+                    let option_args = if option_spec.allow_boolean && rng.random_bool(0.5) {
+                        vec![]
+                    } else {
+                        gen_random_values(rng, option_spec.min_len, option_spec.extra_len)
+                    };
+
+                    values.push((i, option_args));
                 }
             }
         }

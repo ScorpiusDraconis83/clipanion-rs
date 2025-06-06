@@ -1,6 +1,6 @@
 use std::{collections::HashMap, future::Future};
 
-use clipanion_core::{BuiltinCommand, CommandSpec, Info, SelectionResult};
+use clipanion_core::{BuiltinCommand, Info, SelectionResult};
 
 use crate::{details::{CliEnums, CommandExecutor, CommandExecutorAsync, CommandProvider}, format::{format_fading_title_line, Formatter}};
 
