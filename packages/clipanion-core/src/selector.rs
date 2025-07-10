@@ -261,11 +261,11 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
     }
 
     fn handle_everything_is_an_error<T>(&mut self) -> Result<SelectionResult<'cmds, 'args, T>, Error<'cmds>> {
-        if self.args == vec!["--version"] {
+        if self.args.len() == 1 && matches!(self.args[0], "--version" | "-v") {
             return Ok(SelectionResult::Builtin(BuiltinCommand::Version));
         }
 
-        if self.args == vec!["--help"] || self.args == vec!["-h"] {
+        if self.args.len() == 1 && matches!(self.args[0], "--help" | "-h") {
             return Ok(SelectionResult::Builtin(BuiltinCommand::Help(vec![])));
         }
 
