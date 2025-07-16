@@ -26,7 +26,7 @@ pub fn cli_exec_sync_macro(types: Punctuated<syn::Path, syn::Token![,]>, enum_it
         #enum_item
 
         impl ::clipanion::details::CommandExecutor for #enum_ident {
-            fn execute(&self, env: &::clipanion::advanced::Environment) -> ::clipanion::details::CommandResult {
+            fn execute(self, env: &::clipanion::advanced::Environment) -> ::clipanion::details::CommandResult {
                 match self {
                     #(#match_arms)*
                 }

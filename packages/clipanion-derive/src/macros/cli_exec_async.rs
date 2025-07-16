@@ -26,7 +26,7 @@ pub fn cli_exec_async_macro(types: Punctuated<syn::Path, syn::Token![,]>, enum_i
         #enum_item
 
         impl ::clipanion::details::CommandExecutorAsync for #enum_ident {
-            async fn execute(&self, env: &::clipanion::advanced::Environment) -> ::clipanion::details::CommandResult {
+            async fn execute(self, env: &::clipanion::advanced::Environment) -> ::clipanion::details::CommandResult {
                 match self {
                     #(#match_arms)*
                 }

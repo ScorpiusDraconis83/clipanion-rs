@@ -126,9 +126,9 @@ pub trait CommandProvider {
 }
 
 pub trait CommandExecutor {
-    fn execute(&self, env: &Environment) -> crate::details::CommandResult;
+    fn execute(self, env: &Environment) -> crate::details::CommandResult;
 }
 
 pub trait CommandExecutorAsync {
-    fn execute(&self, env: &Environment) -> impl Future<Output = crate::details::CommandResult>;
+    fn execute(self, env: &Environment) -> impl Future<Output = crate::details::CommandResult>;
 }
