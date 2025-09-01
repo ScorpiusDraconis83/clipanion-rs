@@ -330,6 +330,12 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
             println!("after prune_missing_required_options: {:?}", self.candidates);
         }
 
+        self.prune_by_keyword_count();
+
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("after prune_by_keyword_count: {:?}", self.candidates);
+        }
+
         let hydration_results = self.candidates.iter()
             .map(|id| match f(&self.states[*id]) {
                 Ok(result) => Ok((*id, result)),
@@ -345,12 +351,6 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
 
         if std::env::var("CLIPANION_DEBUG").is_ok() {
             println!("after prune_by_hydration_results: {:?}", self.candidates);
-        }
-
-        self.prune_by_keyword_count();
-
-        if std::env::var("CLIPANION_DEBUG").is_ok() {
-            println!("after prune_by_keyword_count: {:?}", self.candidates);
         }
 
         self.prune_by_greediness();

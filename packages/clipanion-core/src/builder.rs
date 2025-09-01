@@ -1056,6 +1056,13 @@ fn it_should_favor_paths_over_optional_positional_arguments() {
 
 #[test]
 fn it_should_favor_paths_filling_early_positional_arguments() {
+    // Note: This test currently fails because of the logic described in selector.rs:
+    //
+    //     We're now going to remove all the entries except for the first
+    //     one for each different command.
+    //
+    // Since in this test we have three different commands, the conflict remains. Should we address that, or update the test?
+
     let mut cli_builder
         = CliBuilder::new();
 
