@@ -23,6 +23,6 @@ impl MyCommand {
 
 program!(MyCli, [MyProxyCommand, MyCommand]);
 
-test_cli_failure!(it_reports_the_proper_error, MyCli, MyCommand, &["foo", "not-a-number"], |error| {
+test_cli_failure!(it_reports_the_proper_error, MyCli, &["foo", "not-a-number"], |error| {
     assert_eq!(error, Error::CommandError(MyCommand::command_spec().unwrap(), CommandError::Custom("invalid digit found in string".to_string())));
 });

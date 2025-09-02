@@ -43,6 +43,6 @@ test_cli_success!(it_works, MyCli, MyCommand, &["10x20"], |command| {
     assert_eq!(command.size, Size {_width: 10, _height: 20});
 });
 
-test_cli_failure!(it_fails_with_invalid_data, MyCli, MyCommand, &["10x"], |error| {
+test_cli_failure!(it_fails_with_invalid_data, MyCli, &["10x"], |error| {
     assert_eq!(error, Error::CommandError(MyCommand::command_spec().unwrap(), CommandError::Custom("Invalid height".to_string())));
 });

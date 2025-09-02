@@ -160,7 +160,7 @@ macro_rules! test_cli_success {
 
 #[macro_export]
 macro_rules! test_cli_failure {
-    ($test_name:ident, $cli_name:ident, $command_name:ty, $args:expr, $fn:expr) => {
+    ($test_name:ident, $cli_name:ident, $args:expr, $fn:expr) => {
         #[test]
         fn $test_name() {
             const ARGS: &[&str] = $args;

@@ -8,6 +8,8 @@ pub trait RunnerState {
 
     fn get_node_id(&self) -> usize;
     fn set_node_id(&mut self, node_id: usize);
+
+    fn get_keyword_count(&self) -> usize;
 }
 
 pub trait ValidateTransition<'args, TState> {
@@ -170,7 +172,12 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
         let states
             = std::mem::take(&mut self.states);
 
-        for state in &states {
+        for state in states {
+            if state.get_node_id() == ERROR_NODE_ID {
+                self.next_states.insert(state);
+                continue;
+            }
+
             let current_node
                 = self.machine.nodes.get(state.get_node_id())
                     .unwrap();
@@ -183,28 +190,24 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
 
             if let Some(transitions) = transitions {
                 for transition in transitions {
-                    self.transition_to(state, transition, token);
+                    self.transition_to(&state, transition, token);
                     transitioned = true;
                 }
             }
 
             if let Arg::User(raw) = &token {
                 for (check, transition) in &current_node.dynamics {
-                    if check.check(state, raw) {
-                        self.transition_to(state, transition, token);
+                    if check.check(&state, raw) {
+                        self.transition_to(&state, transition, token);
                         transitioned = true;
                     }
                 }
             }
 
             if !transitioned {
-                self.next_states.insert((self.fallback)(state.clone(), token));
+                self.next_states.insert((self.fallback)(state, token));
             }
         }
-
-        self.next_states.retain(|state| {
-            state.get_node_id() != ERROR_NODE_ID
-        });
 
         // println!("{:?}", token);
 
@@ -217,6 +220,22 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
 
         self.states = next_states.into_iter().collect();
         self.next_states = BTreeSet::new();
+
+        self.trim_shortest_branches();
+    }
+
+    fn trim_shortest_branches(&mut self) -> ()
+    where
+        TState: RunnerState
+    {
+        let max_keyword_count
+            = self.states.iter()
+                .map(|state| state.get_keyword_count())
+                .max();
+
+        if let Some(max_keyword_count) = max_keyword_count {
+            self.states.retain(|state| state.get_keyword_count() == max_keyword_count);
+        }
     }
 
     pub fn digest(self) -> Result<Vec<TState>, ()> {

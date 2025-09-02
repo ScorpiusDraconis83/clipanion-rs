@@ -14,10 +14,10 @@ program!(MyCli, [MyCommand]);
 test_cli_success!(it_works, MyCli, MyCommand, &["foo", "bar"], |_| {
 });
 
-test_cli_failure!(it_requires_the_full_path, MyCli, MyCommand, &["foo"], |error| {
-    assert_eq!(error, Error::NotFound(vec![]));
+test_cli_failure!(it_requires_the_full_path, MyCli, &["foo"], |error| {
+    assert_eq!(error, Error::NotFound(vec![MyCommand::command_spec().unwrap()]));
 });
 
-test_cli_failure!(it_checks_the_path_segments, MyCli, MyCommand, &["foo", "baz"], |error| {
-    assert_eq!(error, Error::NotFound(vec![]));
+test_cli_failure!(it_checks_the_path_segments, MyCli, &["foo", "baz"], |error| {
+    assert_eq!(error, Error::NotFound(vec![MyCommand::command_spec().unwrap()]));
 });
