@@ -75,6 +75,10 @@ impl<'args> RunnerState for State<'args> {
     fn set_node_id(&mut self, node_id: usize) {
         self.node_id = node_id;
     }
+
+    fn get_keyword_count(&self) -> usize {
+        self.keyword_count
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -446,7 +450,7 @@ impl CommandSpec {
         CommandUsageResult::new(self.clone())
     }
 
-    pub fn build(&self, command_id: usize) -> Machine {
+    pub fn build(&'_ self, command_id: usize) -> Machine<'_> {
         CommandBuilderContext::new(&self, command_id).build()
     }
 }
@@ -840,7 +844,7 @@ impl<'cmds> CliBuilder<'cmds> {
         self
     }
 
-    pub fn compile(&self) -> Machine {
+    pub fn compile(&self) -> Machine<'cmds> {
         let command_machines: Vec<Machine<'cmds>>
             = self.commands.iter()
                 .enumerate()

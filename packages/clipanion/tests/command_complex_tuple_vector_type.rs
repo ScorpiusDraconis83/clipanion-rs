@@ -64,10 +64,10 @@ test_cli_success!(it_works, MyCli, MyCommand, &["--size", "10x20", "red"], |comm
     assert_eq!(command.size, (Size {_width: 10, _height: 20}, Color::Red));
 });
 
-test_cli_failure!(it_fails_with_invalid_data_1, MyCli, MyCommand, &["--size", "10x", "red"], |error| {
+test_cli_failure!(it_fails_with_invalid_data_1, MyCli, &["--size", "10x", "red"], |error| {
     assert_eq!(error, Error::CommandError(MyCommand::command_spec().unwrap(), CommandError::Custom("Invalid height".to_string())));
 });
 
-test_cli_failure!(it_fails_with_invalid_data_2, MyCli, MyCommand, &["--size", "10x20", "salt"], |error| {
+test_cli_failure!(it_fails_with_invalid_data_2, MyCli, &["--size", "10x20", "salt"], |error| {
     assert_eq!(error, Error::CommandError(MyCommand::command_spec().unwrap(), CommandError::Custom("Invalid color".to_string())));
 });
