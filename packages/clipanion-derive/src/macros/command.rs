@@ -24,7 +24,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
     let mut builder = vec![];
     let mut hydraters = vec![];
-    
+
     let mut command_cli_attributes
         = CliAttributes::extract(&mut input.attrs)?;
 
@@ -215,7 +215,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                             }).transpose()?.unwrap()
                         });
                     }
-    
+
                     quote! {
                         args.chunks(#item_count).map(|chunk| -> Result<_, clipanion::core::CommandError> {
                             Ok((#(#tuple_fields),*))
@@ -347,7 +347,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     let no_option_name_lit
                         = LitStr::new(&no_option_name, Span::call_site());
 
-                    if is_option_type || is_vec_type {
+                    if is_vec_type || (is_option_type && !is_bool) {
                         hydraters.push(quote! {
                             partial.#field_ident = Default::default();
                         });

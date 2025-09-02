@@ -8,6 +8,9 @@ pub struct MyCommand {
     #[cli::option("--my-option-default-true", default = true)]
     value_default_true: bool,
 
+    #[cli::option("--my-option-default-none")]
+    value_default_none: Option<bool>,
+
     #[cli::option("--my-option-string")]
     value_string: Option<String>,
 }
@@ -33,6 +36,10 @@ test_cli_success!(it_supports_negated_options_override_true, MyCli, MyCommand, &
 
 test_cli_success!(it_supports_negated_options_default_true, MyCli, MyCommand, &["--no-my-option-default-true"], |command| {
     assert_eq!(command.value_default_true, false);
+});
+
+test_cli_success!(it_supports_negated_options_default_none, MyCli, MyCommand, &["--no-my-option-default-none"], |command| {
+    assert_eq!(command.value_default_none, Some(false));
 });
 
 test_cli_success!(it_supports_negated_options_string, MyCli, MyCommand, &["--my-option-string", "foo", "--no-my-option-string"], |command| {
