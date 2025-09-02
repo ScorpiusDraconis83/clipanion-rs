@@ -42,18 +42,6 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
         Ok(())
     }
 
-    fn prune_by_keyword_count<'a>(&mut self) {
-        let max_keyword_count = self.candidates.iter()
-            .map(|id| self.states[*id].keyword_count)
-            .max();
-
-        if let Some(max_keyword_count) = max_keyword_count {
-            self.candidates.retain(|id| {
-                self.states[*id].keyword_count == max_keyword_count
-            });
-        }
-    }
-
     fn prune_missing_required_options<'a>(&mut self) -> Result<(), Error<'cmds>> {
         let owned_candidates
             = std::mem::take(&mut self.candidates);
@@ -271,7 +259,6 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
 
         self.candidates = (0..self.states.len()).collect();
 
-        self.prune_by_keyword_count();
         self.prune_by_greediness();
 
         let owned_candidates
@@ -328,12 +315,6 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
 
         if std::env::var("CLIPANION_DEBUG").is_ok() {
             println!("after prune_missing_required_options: {:?}", self.candidates);
-        }
-
-        self.prune_by_keyword_count();
-
-        if std::env::var("CLIPANION_DEBUG").is_ok() {
-            println!("after prune_by_keyword_count: {:?}", self.candidates);
         }
 
         let hydration_results = self.candidates.iter()
