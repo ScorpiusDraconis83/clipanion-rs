@@ -182,11 +182,11 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
                 = self.machine.nodes.get(state.get_node_id())
                     .unwrap();
 
-            let transitions
-                = current_node.statics.get(&token);
-
             let mut transitioned
                 = false;
+
+            let transitions
+                = current_node.statics.get(&token);
 
             if let Some(transitions) = transitions {
                 for transition in transitions {
@@ -209,17 +209,11 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
             }
         }
 
-        // println!("{:?}", token);
-
-        // for state in &self.next_states {
-        //     println!("  -> [{}] {}: {:?}", state.get_context_id(), state.get_node_id(), state);
-        // }
-
         let next_states
             = std::mem::take(&mut self.next_states);
 
-        self.states = next_states.into_iter().collect();
-        self.next_states = BTreeSet::new();
+        self.states
+            = next_states.into_iter().collect();
 
         self.trim_shortest_branches();
     }

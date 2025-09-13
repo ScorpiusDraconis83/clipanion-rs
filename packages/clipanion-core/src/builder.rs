@@ -474,10 +474,12 @@ impl std::fmt::Display for CommandSpec {
 
         let (prefix_components, suffix_components): (Vec<_>, _)
             = self.components.iter()
+                .filter(|component| !matches!(component, Component::Option(OptionSpec {is_hidden: true, ..})))
                 .partition(|component| matches!(component, Component::Positional(PositionalSpec::Dynamic {is_prefix: true, ..})));
 
         let components
-            = prefix_components.into_iter().map(|component| component.to_string())
+            = prefix_components.into_iter()
+                .map(|component| component.to_string())
                 .chain(primary_path.iter().map(|segment| segment.to_string()))
                 .chain(suffix_components.into_iter().map(|component| component.to_string()));
 
@@ -515,6 +517,8 @@ pub struct CommandBuilderContext<'cmds> {
     batch_resolve: Vec<(char, usize)>,
     inhibit_options: usize,
     proxy_options: usize,
+    has_option_h: bool,
+    has_option_help: bool,
 }
 
 impl<'cmds> CommandBuilderContext<'cmds> {
@@ -536,6 +540,16 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             .map(|(name, component_id)| (name.chars().skip(1).next().unwrap(), component_id))
             .collect::<Vec<_>>();
 
+        let has_option_h = spec.components.iter()
+            .filter_map(|component| component.is_option())
+            .flat_map(|option| option.all_names())
+            .any(|name| name == "-h");
+
+        let has_option_help = spec.components.iter()
+            .filter_map(|component| component.is_option())
+            .flat_map(|option| option.all_names())
+            .any(|name| name == "--help");
+
         CommandBuilderContext {
             machine: Machine::new(command_id),
             spec,
@@ -543,6 +557,8 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             batch_resolve,
             inhibit_options: 0,
             proxy_options: 0,
+            has_option_h,
+            has_option_help,
         }
     }
 
@@ -570,7 +586,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
         }
     }
 
-    fn attach_options(&mut self, pre_options_node_id: usize) -> usize {
+    fn attach_options(&mut self, pre_options_node_id: usize, is_followed_by_proxy: bool) -> usize {
         if self.inhibit_options > 0 || self.proxy_options > 0 {
             return pre_options_node_id;
         }
@@ -660,6 +676,26 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             }
         }
 
+        if !is_followed_by_proxy {
+            if !self.has_option_help {
+                self.machine.register_dynamic(
+                    pre_options_node_id,
+                    Some(Check::IsOption("--help")),
+                    ERROR_NODE_ID,
+                    Some(Reducer::EnableHelp),
+                );
+            }
+
+            if !self.has_option_h {
+                self.machine.register_dynamic(
+                    pre_options_node_id,
+                    Some(Check::IsOption("-h")),
+                    ERROR_NODE_ID,
+                    Some(Reducer::EnableHelp),
+                );
+            }
+        }
+
         post_options_node_id
     }
 
@@ -674,7 +710,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             Some(reducer),
         );
 
-        self.attach_options(next_node_id)
+        self.attach_options(next_node_id, false)
     }
 
     fn attach_variadic(&mut self, pre_node_id: usize, min_len: usize, extra_len: Option<usize>, start_action: Reducer, subsequent_actions: Reducer) -> usize {
@@ -766,7 +802,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
                     );
 
                     current_node_id
-                        = self.attach_options(next_node_id);
+                        = self.attach_options(next_node_id, false);
                 },
 
                 PositionalSpec::Dynamic {min_len, extra_len, is_proxy, ..} => {
@@ -803,8 +839,13 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             None,
         );
 
+        let is_first_positional_a_proxy
+            = self.spec.components.iter()
+                .find_map(|component| if let Component::Positional(PositionalSpec::Dynamic {is_prefix, is_proxy, ..}) = component {(!is_prefix).then_some(*is_proxy)} else {None})
+                .unwrap_or(false);
+
         let mut current_node_id
-            = self.attach_options(first_node_id);
+            = self.attach_options(first_node_id, false);
 
         let positional_components = self.spec.components.iter()
             .enumerate()
@@ -818,32 +859,6 @@ impl<'cmds> CommandBuilderContext<'cmds> {
         current_node_id
             = self.attach_positionals(current_node_id, &prefix_components);
 
-        let is_first_positional_a_proxy
-            = self.spec.components.iter()
-                .find_map(|component| if let Component::Positional(PositionalSpec::Dynamic {is_prefix, is_proxy, ..}) = component {(!is_prefix).then_some(*is_proxy)} else {None})
-                .unwrap_or(false);
-
-        let help_node_id = (!is_first_positional_a_proxy).then(|| {
-            let consumer_node_id
-                = self.machine.create_node();
-
-            self.machine.register_dynamic(
-                consumer_node_id,
-                None,
-                consumer_node_id,
-                None,
-            );
-
-            self.machine.register_static(
-                consumer_node_id,
-                Arg::EndOfInput,
-                SUCCESS_NODE_ID,
-                Some(Reducer::EnableHelp),
-            );
-
-            consumer_node_id
-        });
-
         if !self.spec.paths.is_empty() && !self.spec.paths.iter().all(|path| path.is_empty()) {
             let post_paths_node_id
                 = self.machine.create_node();
@@ -853,7 +868,12 @@ impl<'cmds> CommandBuilderContext<'cmds> {
                     = current_node_id;
 
                 if !path.is_empty() {
-                    for segment in path {
+                    for (i, segment) in path.iter().enumerate() {
+                        let is_last_segment
+                            = i == path.len() - 1;
+                        let is_followed_by_proxy
+                            = is_last_segment && is_first_positional_a_proxy;
+
                         let post_segment_node_id
                             = self.machine.create_node();
 
@@ -865,23 +885,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
                         );
 
                         current_path_node_id
-                            = self.attach_options(post_segment_node_id);
-                    }
-
-                    if let Some(help_node_id) = help_node_id {
-                        self.machine.register_static(
-                            current_path_node_id,
-                            Arg::User("--help"),
-                            help_node_id,
-                            Some(Reducer::IncreaseStaticCount),
-                        );
-        
-                        self.machine.register_static(
-                            current_path_node_id,
-                            Arg::User("-h"),
-                            help_node_id,
-                            Some(Reducer::IncreaseStaticCount),
-                        );
+                            = self.attach_options(post_segment_node_id, is_followed_by_proxy);
                     }
                 }
 

@@ -9,14 +9,28 @@ use std::collections::HashMap;
 use std::env;
 use std::fmt::Write;
 
-pub fn format_fading_title_line(title: &str, total_length: usize, fade_len: usize) -> String {
+pub type Color = (u8, u8, u8);
+
+pub fn write_color<T: Write>(output: &mut T, color: Color) {
+    let r = color.0;
+    let g = color.1;
+    let b = color.2;
+
+    write!(output, "\x1b[38;2;{r};{g};{b}m").unwrap();
+}
+
+pub fn write_fading_title_line<T: Write>(output: &mut T, title: &str, main_color: (u8, u8, u8), total_length: usize, fade_len: usize) {
     // Background target map (RGB)
     let target_colors: HashMap<&'static str, (u8, u8, u8)> = [
         ("ghostty", (39, 45, 52)),
         ("xterm",   (0, 0, 0)),
     ].iter().cloned().collect();
 
-    let term_program = env::var("TERM_PROGRAM").unwrap_or_default().to_lowercase();
+    let term_program
+        = env::var("TERM_PROGRAM")
+            .unwrap_or_default()
+            .to_lowercase();
+
     let (r_target, g_target, b_target) = target_colors
         .get(term_program.as_str())
         .copied()
@@ -32,30 +46,31 @@ pub fn format_fading_title_line(title: &str, total_length: usize, fade_len: usiz
     let fade_len = fade_len.min(remaining);
     let solid_len = remaining.saturating_sub(fade_len);
 
-    let mut output = String::new();
-    output.push_str("\x1b[1m"); // Bold
-    output.push_str(&title_str);
+    output.write_str("\x1b[1m").unwrap();
+    write_color(output, main_color);
+    output.write_str(left).unwrap();
+    write_color(output, (255, 255, 255));
+    output.write_str(&title).unwrap();
+    write_color(output, main_color);
+    output.write_char(' ').unwrap();
 
     // Solid ━ characters before the fade starts
     for _ in 0..solid_len {
-        output.push('━');
+        output.write_char('━').unwrap();
     }
 
     // Fading right side (from white to target background color)
     for i in 0..fade_len {
         let t = i as f32 / fade_len as f32;
-        let r = ((1.0 - t) * 255.0 + t * r_target as f32) as u8;
-        let g = ((1.0 - t) * 255.0 + t * g_target as f32) as u8;
-        let b = ((1.0 - t) * 255.0 + t * b_target as f32) as u8;
+        let r = ((1.0 - t) * main_color.0 as f32 + t * r_target as f32) as u8;
+        let g = ((1.0 - t) * main_color.1 as f32 + t * g_target as f32) as u8;
+        let b = ((1.0 - t) * main_color.2 as f32 + t * b_target as f32) as u8;
 
-        let _ = write!(
-            output,
-            "\x1b[38;2;{r};{g};{b}m━"
-        );
+        write_color(output, (r, g, b));
+        output.write_char('━').unwrap();
     }
 
-    output.push_str("\x1b[0m"); // Reset
-    output
+    output.write_str("\x1b[0m\n").unwrap(); // Reset
 }
 
 pub struct Formatter<S> {
@@ -74,9 +89,12 @@ impl<S: CommandProvider> Formatter<S> {
         result += " ";
         result += &err.to_string();
 
-        let usage_lines = command_specs.into_iter()
-            .map(|command_spec| command_spec.usage().oneliner(info))
-            .collect::<Vec<_>>();
+        let mut usage_lines
+            = command_specs.into_iter()
+                .map(|command_spec| command_spec.usage().oneliner(info))
+                .collect::<Vec<_>>();
+
+        usage_lines.sort();
 
         if !usage_lines.is_empty() {
             result += "\n\n";

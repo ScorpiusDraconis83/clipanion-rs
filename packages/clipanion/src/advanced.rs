@@ -2,7 +2,7 @@ use std::{collections::HashMap, future::Future};
 
 use clipanion_core::{BuiltinCommand, Info, SelectionResult};
 
-use crate::{details::{CliEnums, CommandExecutor, CommandExecutorAsync, CommandProvider}, format::{format_fading_title_line, Formatter}};
+use crate::{details::{CliEnums, CommandExecutor, CommandExecutorAsync, CommandProvider}, format::{write_color, write_fading_title_line, Formatter}};
 
 /**
  * Used to define the properties of the CLI. In general you can ignore this and
@@ -98,7 +98,10 @@ fn handle_builtin<S: CommandProvider>(builtin: BuiltinCommand, env: &Environment
         },
 
         BuiltinCommand::Help(commands) => {
-            println!("{}", format_fading_title_line(&format!("{} - {}", env.info.program_name, env.info.version), 80, 50));
+            let mut output_string
+                = String::new();
+
+            write_fading_title_line(&mut output_string, &format!("{} - {}", env.info.program_name, env.info.version), (255, 255, 255), 80, 50);
 
             let commands = match commands.is_empty() {
                 true => S::registered_commands().unwrap(),
@@ -111,8 +114,9 @@ fn handle_builtin<S: CommandProvider>(builtin: BuiltinCommand, env: &Environment
                     .cloned();
 
             if let Some(default_command) = default_command {
-                println!("");
-                println!("  {}", default_command.usage().oneliner(&env.info));
+                output_string.push_str("\n  \x1b[1m");
+                output_string.push_str(&default_command.usage().oneliner(&env.info));
+                output_string.push_str("\x1b[0m\n");
             }
 
             let mut commands_by_category
@@ -141,8 +145,8 @@ fn handle_builtin<S: CommandProvider>(builtin: BuiltinCommand, env: &Environment
                 let category = category
                     .unwrap_or("General commands");
 
-                println!("");
-                println!("{}", format_fading_title_line(category, 80, 50));
+                output_string.push('\n');
+                write_fading_title_line(&mut output_string, category, (128, 128, 128), 80, 50);
 
                 let mut commands_and_paths
                     = commands.into_iter()
@@ -155,12 +159,17 @@ fn handle_builtin<S: CommandProvider>(builtin: BuiltinCommand, env: &Environment
 
                 for command in commands {
                     if let Some(usage) = &command.description {
-                        println!("");
-                        println!("  \x1b[1m{}\x1b[0m", command.usage().oneliner(&env.info));
-                        println!("    {}", usage);
+                        output_string.push_str("\n  \x1b[1m");
+                        output_string.push_str(&command.usage().oneliner(&env.info));
+                        output_string.push_str("\x1b[0m\n      ");
+                        write_color(&mut output_string, (128, 128, 128));
+                        output_string.push_str(usage);
+                        output_string.push_str("\x1b[0m\n");
                     }
                 }
             }
+
+            print!("{}", output_string);
 
             std::process::ExitCode::SUCCESS
         },

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use itertools::Itertools;
 
-use crate::{shared::SUCCESS_NODE_ID, BuiltinCommand, CommandError, CommandSpec, Component, Error, State};
+use crate::{shared::{ERROR_NODE_ID, SUCCESS_NODE_ID}, BuiltinCommand, CommandError, CommandSpec, Component, Error, State};
 
 #[derive(Debug)]
 pub enum SelectionResult<'cmds, 'args, T> {
@@ -43,60 +43,24 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
         Ok(())
     }
 
-    fn prune_missing_required_options<'a>(&mut self) -> Result<(), Error<'cmds>> {
-        let owned_candidates
-            = std::mem::take(&mut self.candidates);
+    fn fail_missing_required_options<'a>(&mut self) {
+        for &id in self.candidates.iter() {
+            let state
+                = &mut self.states[id];
 
-        let (successful_candidates, unsuccessful_candidates)
-            = owned_candidates.into_iter()
-                .map(|id| {
-                    let state
-                        = &self.states[id];
+            let command
+                = self.commands[state.context_id];
 
-                    let command
-                        = self.commands[state.context_id];
+            let has_missing_required_options
+                = command.required_options.iter()
+                    .any(|option_id| {
+                        !state.option_values.iter().any(|(id, _)| id == option_id)
+                    });
 
-                    let missing_options = command.required_options.iter().filter(|option_id| {
-                        !state.option_values.iter().any(|(id, _)| *id == **option_id)
-                    }).cloned().collect::<Vec<_>>();
-
-                    (id, missing_options)
-                }).partition::<Vec<_>, _>(|(_, required_options)| {
-                    required_options.len() == 0
-                });
-
-        if successful_candidates.len() == 0 {
-            if unsuccessful_candidates.len() == 1 {
-                let (id, missing_option_indexes)
-                    = unsuccessful_candidates.first().unwrap();
-
-                let state
-                    = &self.states[*id];
-
-                let command_spec
-                    = self.commands[state.context_id];
-
-                let missing_options = missing_option_indexes.iter()
-                    .map(|index| &command_spec.components[*index])
-                    .flat_map(|component| if let Component::Option(option) = component {Some(option.primary_name.clone())} else {None})
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                return Err(Error::CommandError(command_spec, CommandError::MissingOptionArguments(missing_options)));
-            } else {
-                let command_specs = unsuccessful_candidates.into_iter()
-                    .map(|(id, _)| self.commands[id])
-                    .collect::<Vec<_>>();
-
-                return Err(Error::AmbiguousSyntax(command_specs));
+            if has_missing_required_options {
+                state.node_id = ERROR_NODE_ID;
             }
         }
-
-        self.candidates = successful_candidates.into_iter()
-            .map(|(id, _)| id)
-            .collect();
-
-        Ok(())
     }
 
     fn prune_by_hydration_results(&mut self, mut hydration_errors: Vec<(usize, CommandError)>) -> Result<(), Error<'cmds>> {
@@ -297,6 +261,16 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
             return Ok(SelectionResult::Builtin(BuiltinCommand::Help(help_contexts)));
         }
 
+        self.fail_missing_required_options();
+
+        if std::env::var("CLIPANION_DEBUG").is_ok() {
+            println!("========== After failing missing required options ==========");
+
+            for state in &self.states {
+                println!("- {:?}", state);
+            }
+        }
+
         if std::env::var("CLIPANION_DEBUG").is_ok() {
             println!("========== Candidate filtering ==========");
             println!("initial candidates: {:?}", self.candidates);
@@ -310,12 +284,6 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
 
         if self.candidates.len() == 0 {
             return self.handle_everything_is_an_error();
-        }
-
-        self.prune_missing_required_options()?;
-
-        if std::env::var("CLIPANION_DEBUG").is_ok() {
-            println!("after prune_missing_required_options: {:?}", self.candidates);
         }
 
         let hydration_results = self.candidates.iter()

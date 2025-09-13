@@ -20,7 +20,7 @@ impl CommandUsageResult {
 
     pub fn oneliner(&self, info: &Info) -> String {
         let usage_line
-            = format!("{} {}", info.binary_name, self.command_spec);
+            = format!("› {} {}", info.binary_name, self.command_spec);
 
         let usage_line = match info.colorized {
             true => usage_line.bright_white().to_string(),
