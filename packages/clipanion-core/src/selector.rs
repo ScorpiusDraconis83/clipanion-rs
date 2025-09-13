@@ -257,7 +257,7 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
             .map(|id| self.commands[id])
             .collect::<Vec<_>>();
 
-        if help_contexts.len() > 0 {
+        if help_contexts.len() > 0 && !self.states.iter().any(|state| state.node_id == SUCCESS_NODE_ID) {
             return Ok(SelectionResult::Builtin(BuiltinCommand::Help(help_contexts)));
         }
 
