@@ -1,0 +1,6 @@
+---
+description: Read this file when you need to use a package manager.
+globs:
+alwaysApply: false
+---
+Use Yarn. Never use npm or npx.

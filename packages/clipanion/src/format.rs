@@ -109,6 +109,9 @@ impl<S: CommandProvider> Formatter<S> {
             clipanion_core::Error::AmbiguousSyntax(candidate_specs)
                 => Self::format_error(info, "Usage Error", &"The provided arguments are ambiguous and need to be refined further. Possible options are:", candidate_specs.iter().cloned()),
 
+            clipanion_core::Error::BuildError(build_error)
+                => Self::format_error(info, "Build Error", &build_error.to_string(), []),
+
             clipanion_core::Error::CommandError(command_spec, err)
                 => Self::format_error(info, "Usage Error", err, [*command_spec]),
 

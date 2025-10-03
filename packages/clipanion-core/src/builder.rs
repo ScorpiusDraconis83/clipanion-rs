@@ -1,16 +1,16 @@
-use std::{fmt::Display, iter::once};
+use std::{fmt::Display, iter::once, ops::Range};
 
 use itertools::Itertools;
 
-use crate::{machine, runner::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageResult, Error, Selector};
+use crate::{machine, runner::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, ArgKey, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageResult, Error, Selector};
 
 #[cfg(test)]
 use crate::SelectionResult;
 
-/**
- */
 #[derive(Debug, Clone)]
-pub enum BuiltinCommand<'cmds> {
+pub enum BuiltinCommand<'cmds, 'args> {
+    Describe,
+    Tokenize(Vec<&'args str>),
     Version,
     Help(Vec<&'cmds CommandSpec>),
 }
@@ -24,13 +24,51 @@ pub struct Info {
     pub colorized: bool,
 }
 
-#[derive(Debug)]
-pub struct Context {
-    _command_id: usize,
-    _command_spec: CommandSpec,
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "type"))]
+#[cfg_attr(feature = "serde", derive(ts_rs::TS))]
+#[cfg_attr(feature = "serde", ts(export_to = "index.ts"))]
+pub enum Token {
+    Syntax {
+        arg_index: usize,
+        slice: Range<usize>,
+    },
+    Keyword {
+        arg_index: usize,
+        slice: Range<usize>,
+    },
+    Option {
+        arg_index: usize,
+        slice: Range<usize>,
+        component_id: usize,
+    },
+    Positional {
+        arg_index: usize,
+        slice: Range<usize>,
+        component_id: usize,
+    },
+    Assign {
+        arg_index: usize,
+        slice: Range<usize>,
+    },
+    Value {
+        arg_index: usize,
+        slice: Range<usize>,
+        component_id: usize,
+    },
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+#[cfg_attr(feature = "serde", derive(ts_rs::TS))]
+#[cfg_attr(feature = "serde", ts(export, export_to = "index.ts"))]
+pub struct TokenSet {
+    pub command_id: usize,
+    pub tokens: Vec<Token>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State<'args> {
     pub context_id: usize,
     pub node_id: usize,
@@ -38,8 +76,11 @@ pub struct State<'args> {
     pub path: Vec<&'args str>,
     pub positional_values: Vec<(usize, Vec<&'args str>)>,
     pub option_values: Vec<(usize, Vec<&'args str>)>,
-    pub post_double_slash: bool,
+    pub post_double_dash: bool,
     pub is_help: bool,
+
+    #[cfg(feature = "tokens")]
+    pub tokens: Vec<Token>,
 }
 
 impl<'args> State<'args> {
@@ -94,23 +135,23 @@ impl<'cmds, 'args> ValidateTransition<'args, State<'args>> for Check<'cmds> {
     fn check(&self, state: &State<'args>, arg: &'args str) -> bool {
         match self {
             Check::IsOption(name) => {
-                !state.post_double_slash && arg == *name
+                !state.post_double_dash && arg == *name
             },
 
             Check::IsOptionBinding(name) => {
-                !state.post_double_slash && arg.starts_with(name) && arg.chars().nth(name.len()) == Some('=')
+                !state.post_double_dash && arg.starts_with(name) && arg.chars().nth(name.len()) == Some('=')
             },
 
             Check::IsOptionLike => {
-                !state.post_double_slash && arg.starts_with("-") && arg != "--"
+                !state.post_double_dash && arg.starts_with("-") && arg != "--"
             },
 
             Check::IsNotOptionLike => {
-                state.post_double_slash || !arg.starts_with("-")
+                state.post_double_dash || !arg.starts_with("-")
             },
 
             Check::IsBatch(batch) => {
-                !state.post_double_slash && arg.starts_with("-") && arg.len() > 2 && arg.chars().skip(1).all(|c| batch.contains(&c))
+                !state.post_double_dash && arg.starts_with("-") && arg.len() > 2 && arg.chars().skip(1).all(|c| batch.contains(&c))
             },
         }
     }
@@ -124,7 +165,7 @@ pub enum Attachment {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reducer {
-    EnableDoubleSlash,
+    EnableDoubleDash,
     EnableHelp,
     IncreaseStaticCount,
     StartValue(Attachment, usize),
@@ -134,28 +175,76 @@ pub enum Reducer {
 }
 
 impl<'args> DeriveState<'args, State<'args>> for Reducer {
-    fn derive(&self, state: &mut State<'args>, _target_id: usize, token: &'args str) -> () {
+    fn derive(&self, state: &mut State<'args>, _target_id: usize, token: Arg<'args>) -> () {
         match self {
             Reducer::EnableHelp => {
                 state.is_help = true;
+
+                #[cfg(feature = "tokens")]
+                if let Arg::User(arg_raw, arg_index) = token {
+                    state.tokens.push(Token::Syntax {
+                        arg_index,
+                        slice: 0..arg_raw.len(),
+                    });
+                }
             },
 
-            Reducer::EnableDoubleSlash => {
-                state.post_double_slash = true;
+            Reducer::EnableDoubleDash => {
+                state.post_double_dash = true;
+
+                #[cfg(feature = "tokens")]
+                if let Arg::User(arg_raw, arg_index) = token {
+                    state.tokens.push(Token::Syntax {
+                        arg_index,
+                        slice: 0..arg_raw.len(),
+                    });
+                }
             },
 
             Reducer::IncreaseStaticCount => {
                 state.keyword_count += 1;
+
+                #[cfg(feature = "tokens")]
+                if let Arg::User(arg_raw, arg_index) = token {
+                    state.tokens.push(Token::Keyword {
+                        arg_index,
+                        slice: 0..arg_raw.len(),
+                    });
+                }
             },
 
             Reducer::StartValue(attachment, attachment_id) => {
                 match attachment {
                     Attachment::Option => {
                         state.option_values.push((*attachment_id, vec![]));
+
+                        let Arg::User(arg_raw, arg_index) = token else {
+                            panic!("Expected user argument");
+                        };
+
+                        #[cfg(feature = "tokens")] {
+                            state.tokens.push(Token::Option {
+                                arg_index,
+                                slice: 0..arg_raw.len(),
+                                component_id: *attachment_id,
+                            });
+                        }
                     },
 
                     Attachment::Positional => {
-                        state.positional_values.push((*attachment_id, vec![token]));
+                        let Arg::User(arg_raw, arg_index) = token else {
+                            panic!("Expected user argument");
+                        };
+
+                        state.positional_values.push((*attachment_id, vec![arg_raw]));
+
+                        #[cfg(feature = "tokens")] {
+                            state.tokens.push(Token::Positional {
+                                arg_index,
+                                slice: 0..arg_raw.len(),
+                                component_id: *attachment_id,
+                            });
+                        }
                     },
                 }
             },
@@ -163,30 +252,92 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
             Reducer::PushValue(attachment) => {
                 match attachment {
                     Attachment::Option => {
-                        if let Some((_, ref mut values)) = state.option_values.last_mut() {
-                            values.push(token);
+                        let Some((attachment_id, ref mut values)) = state.option_values.last_mut() else {
+                            panic!("No option value found");
+                        };
+
+                        let Arg::User(arg_raw, arg_index) = token else {
+                            panic!("Expected user argument");
+                        };
+
+                        values.push(arg_raw);
+
+                        #[cfg(feature = "tokens")] {
+                            state.tokens.push(Token::Value {
+                                arg_index,
+                                slice: 0..arg_raw.len(),
+                                component_id: *attachment_id,
+                            });
                         }
                     },
 
                     Attachment::Positional => {
-                        if let Some((_, ref mut values)) = state.positional_values.last_mut() {
-                            values.push(token);
+                        let Some((attachment_id, ref mut values)) = state.positional_values.last_mut() else {
+                            panic!("No positional value found");
+                        };
+
+                        let Arg::User(arg_raw, arg_index) = token else {
+                            panic!("Expected user argument");
+                        };
+
+                        values.push(arg_raw);
+
+                        #[cfg(feature = "tokens")] {
+                            state.tokens.push(Token::Positional {
+                                arg_index,
+                                slice: 0..arg_raw.len(),
+                                component_id: *attachment_id,
+                            });
                         }
                     },
                 }
             },
 
             Reducer::BindValue(skip_len, option_id) => {
-                state.option_values.push((*option_id, vec![&token[*skip_len + 1..]]));
+                let Arg::User(arg_raw, arg_index) = token else {
+                    panic!("Expected user argument");
+                };
+
+                state.option_values.push((*option_id, vec![&arg_raw[*skip_len + 1..]]));
+
+                #[cfg(feature = "tokens")] {
+                    state.tokens.push(Token::Option {
+                        arg_index,
+                        slice: 0..*skip_len,
+                        component_id: *option_id,
+                    });
+
+                    state.tokens.push(Token::Assign {
+                        arg_index,
+                        slice: *skip_len..*skip_len + 1,
+                    });
+
+                    state.tokens.push(Token::Value {
+                        arg_index,
+                        slice: *skip_len + 1..arg_raw.len(),
+                        component_id: *option_id,
+                    });
+                }
             },
 
             Reducer::ResolveBatch(batch) => {
-                for c in token.chars().skip(1) {
-                    let index = batch.iter()
-                        .find_map(|(other_c, option_id)| (c == *other_c).then_some(option_id));
+                let Arg::User(arg_raw, arg_index) = token else {
+                    panic!("Expected user argument");
+                };
 
-                    if let Some(option_id) = index {
-                        state.option_values.push((*option_id, vec![]));
+                for (batch_index, c) in arg_raw.chars().enumerate().skip(1) {
+                    let Some((_, option_id)) = batch.iter().find(|(other_c, _)| c == *other_c) else {
+                        continue;
+                    };
+
+                    state.option_values.push((*option_id, vec![]));
+
+                    #[cfg(feature = "tokens")] {
+                        state.tokens.push(Token::Option {
+                            arg_index,
+                            slice: if batch_index == 0 {0..2} else {batch_index..batch_index + 1},
+                            component_id: *option_id,
+                        });
                     }
                 }
             },
@@ -198,6 +349,10 @@ type Machine<'cmds>
     = machine::Machine<'cmds, Option<Check<'cmds>>, Option<Reducer>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase", tag = "type"))]
+#[cfg_attr(feature = "serde", derive(ts_rs::TS))]
+#[cfg_attr(feature = "serde", ts(export_to = "index.ts"))]
 pub enum PositionalSpec {
     Keyword {
         expected: String,
@@ -205,7 +360,7 @@ pub enum PositionalSpec {
 
     Dynamic {
         name: String,
-        description: String,
+        description: Option<String>,
 
         min_len: usize,
         extra_len: Option<usize>,
@@ -277,7 +432,7 @@ impl PositionalSpec {
     pub fn optional() -> Self {
         PositionalSpec::Dynamic {
             name: "".to_string(),
-            description: "".to_string(),
+            description: None,
 
             min_len: 0,
             extra_len: Some(1),
@@ -290,7 +445,7 @@ impl PositionalSpec {
     pub fn required() -> Self {
         PositionalSpec::Dynamic {
             name: "".to_string(),
-            description: "".to_string(),
+            description: None,
             
             min_len: 1,
             extra_len: Some(0),
@@ -303,7 +458,7 @@ impl PositionalSpec {
     pub fn rest() -> Self {
         PositionalSpec::Dynamic {
             name: "".to_string(),
-            description: "".to_string(),
+            description: None,
 
             min_len: 0,
             extra_len: None,
@@ -316,7 +471,7 @@ impl PositionalSpec {
     pub fn proxy() -> Self {
         PositionalSpec::Dynamic {
             name: "".to_string(),
-            description: "".to_string(),
+            description: None,
             
             min_len: 0,
             extra_len: None,
@@ -328,11 +483,15 @@ impl PositionalSpec {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+#[cfg_attr(feature = "serde", derive(ts_rs::TS))]
+#[cfg_attr(feature = "serde", ts(export_to = "index.ts"))]
 pub struct OptionSpec {
     pub primary_name: String,
     pub aliases: Vec<String>,
 
-    pub description: String,
+    pub description: Option<String>,
 
     pub min_len: usize,
     pub extra_len: Option<usize>,
@@ -367,7 +526,7 @@ impl OptionSpec {
         OptionSpec {
             primary_name,
             aliases,
-            description: "".to_string(),
+            description: None,
             
             min_len: 0,
             extra_len: Some(0),
@@ -386,7 +545,7 @@ impl OptionSpec {
         OptionSpec {
             primary_name,
             aliases,
-            description: "".to_string(),
+            description: None,
             
             min_len: 1,
             extra_len: Some(0),
@@ -430,6 +589,10 @@ impl std::fmt::Display for OptionSpec {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase", tag = "type"))]
+#[cfg_attr(feature = "serde", derive(ts_rs::TS))]
+#[cfg_attr(feature = "serde", ts(export_to = "index.ts"))]
 pub enum Component {
     Positional(PositionalSpec),
     Option(OptionSpec),
@@ -457,6 +620,10 @@ impl std::fmt::Display for Component {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+#[cfg_attr(feature = "serde", derive(ts_rs::TS))]
+#[cfg_attr(feature = "serde", ts(export, export_to = "index.ts"))]
 pub struct CommandSpec {
     pub category: Option<String>,
     pub description: Option<String>,
@@ -603,7 +770,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
             pre_options_node_id,
             Some(Check::IsOption("--")),
             pre_options_node_id,
-            Some(Reducer::EnableDoubleSlash),
+            Some(Reducer::EnableDoubleDash),
         );
 
         self.machine.register_dynamic(
@@ -796,7 +963,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
 
                     self.machine.register_static(
                         current_node_id,
-                        Arg::User(expected),
+                        ArgKey::User(expected),
                         next_node_id,
                         Some(Reducer::IncreaseStaticCount),
                     );
@@ -834,7 +1001,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
 
         self.machine.register_static(
             INITIAL_NODE_ID,
-            Arg::StartOfInput,
+            ArgKey::StartOfInput,
             first_node_id,
             None,
         );
@@ -879,7 +1046,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
 
                         self.machine.register_static(
                             current_path_node_id,
-                            Arg::User(segment.as_str()),
+                            ArgKey::User(segment.as_str()),
                             post_segment_node_id,
                             Some(Reducer::IncreaseStaticCount),
                         );
@@ -903,7 +1070,7 @@ impl<'cmds> CommandBuilderContext<'cmds> {
 
         self.machine.register_static(
             current_node_id,
-            Arg::EndOfInput,
+            ArgKey::EndOfInput,
             SUCCESS_NODE_ID,
             None,
         );
@@ -943,6 +1110,21 @@ impl<'cmds> CliBuilder<'cmds> {
         machine
     }
 
+    pub fn run_partial<'args>(&self, args: &[&'args str]) -> Vec<State<'args>> {
+        fn on_error<'args>(mut state: State<'args>, _: Arg<'args>) -> State<'args> {
+            state.set_node_id(ERROR_NODE_ID);
+            state
+        }
+
+        let machine
+            = self.compile();
+
+        let states: Vec<State<'args>>
+            = runner::Runner::run_partial(&machine, on_error, args);
+
+        states
+    }
+
     pub fn run<'args>(&self, args: &[&'args str]) -> Result<Selector<'cmds, 'args>, Error<'cmds>> {
         fn on_error<'args>(mut state: State<'args>, _: Arg<'args>) -> State<'args> {
             state.set_node_id(ERROR_NODE_ID);
@@ -953,7 +1135,7 @@ impl<'cmds> CliBuilder<'cmds> {
             = self.compile();
 
         let states: Vec<State<'args>>
-            = runner::Runner::run(&machine, on_error, args).unwrap();
+            = runner::Runner::run(&machine, on_error, args);
         
         let selector: Selector<'cmds, 'args>
             = Selector::new(self.commands.clone(), args.to_vec(), states);

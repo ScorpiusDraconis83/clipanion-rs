@@ -5,8 +5,8 @@ pub enum CommandError {
     #[error("{0}")]
     Custom(String),
 
-    #[error("Missing required option argument(s): {0}")]
-    MissingOptionArguments(String),
+    #[error("Missing required option argument(s): {name}", name = .0.join(", "))]
+    MissingOptionArguments(Vec<String>),
 
     #[error("Unsupported option name")]
     UnknownOption,
@@ -31,6 +31,9 @@ impl From<String> for CommandError {
 pub enum Error<'cmds> {
     #[error("The provided arguments are ambiguous and need to be refined further. Possible options are:")]
     AmbiguousSyntax(Vec<&'cmds CommandSpec>),
+
+    #[error(transparent)]
+    BuildError(#[from] BuildError),
 
     #[error("{1}")]
     CommandError(&'cmds CommandSpec, CommandError),

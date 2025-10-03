@@ -18,5 +18,5 @@ test_cli_success!(it_works, MyCli, MyCommand, &["--my-option"], |command| {
 });
 
 test_cli_failure!(it_requires_the_option_to_be_present, MyCli, &[], |error| {
-    assert_eq!(error, Error::CommandError(&MyCommand::command_spec().unwrap(), CommandError::MissingOptionArguments("--my-option".to_string())));
+    assert_eq!(error, Error::CommandError(MyCommand::command_spec().unwrap(), CommandError::MissingOptionArguments(vec!["--my-option".to_string()])));
 });

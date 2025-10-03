@@ -1,6 +1,6 @@
 use std::{collections::HashMap, future::Future};
 
-use clipanion_core::{BuiltinCommand, Info, SelectionResult};
+use clipanion_core::{BuiltinCommand, CliBuilder, Info, SelectionResult};
 
 use crate::{details::{CliEnums, CommandExecutor, CommandExecutorAsync, CommandProvider}, format::{write_color, write_fading_title_line, Formatter}};
 
@@ -74,6 +74,11 @@ fn report_error<'cmds, 'args, S: CommandProvider>(env: &Environment, err: clipan
             std::process::ExitCode::FAILURE
         },
 
+        clipanion_core::Error::BuildError(build_error) => {
+            println!("{}", Formatter::<S>::format_error(&env.info, "Error", &build_error.to_string(), vec![]));
+            std::process::ExitCode::FAILURE
+        },
+
         clipanion_core::Error::AmbiguousSyntax(command_specs) => {
             println!("{}", Formatter::<S>::format_error(&env.info, "Error", &"The provided arguments are ambiguous and need to be refined further. Possible options are:", command_specs));
             std::process::ExitCode::FAILURE
@@ -90,11 +95,50 @@ fn report_error<'cmds, 'args, S: CommandProvider>(env: &Environment, err: clipan
     }
 }
 
-fn handle_builtin<S: CommandProvider>(builtin: BuiltinCommand, env: &Environment) -> std::process::ExitCode {
+fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuilder<'static>, env: &'args Environment, builtin: BuiltinCommand<'cmds, 'args>) -> Result<std::process::ExitCode, clipanion_core::Error<'cmds>> {
     match builtin {
+        BuiltinCommand::Describe => {
+            let commands
+                = S::registered_commands()?;
+
+            let commands_json
+                = serde_json::to_string(&commands)
+                    .map_err(|_| clipanion_core::Error::InternalError)?;
+
+            println!("{}", commands_json);
+
+            Ok(std::process::ExitCode::SUCCESS)
+        },
+
+        BuiltinCommand::Tokenize(command_line) => {
+            #[cfg(not(feature = "tokens"))] {
+                return Err(clipanion_core::Error::InternalError);
+            }
+
+            #[cfg(feature = "tokens")] {
+                use clipanion_core::TokenSet;
+
+                let mut states
+                    = builder.run_partial(&command_line);
+
+                let result = states.pop().map(|state| TokenSet {
+                    command_id: state.context_id,
+                    tokens: state.tokens.clone(),
+                });
+
+                let tokens_json
+                    = serde_json::to_string(&result)
+                        .map_err(|_| clipanion_core::Error::InternalError)?;
+
+                println!("{}", tokens_json);
+
+                Ok(std::process::ExitCode::SUCCESS)
+            }
+        },
+
         BuiltinCommand::Version => {
             println!("{}", env.info.version);
-            std::process::ExitCode::SUCCESS
+            Ok(std::process::ExitCode::SUCCESS)
         },
 
         BuiltinCommand::Help(commands) => {
@@ -171,22 +215,17 @@ fn handle_builtin<S: CommandProvider>(builtin: BuiltinCommand, env: &Environment
 
             print!("{}", output_string);
 
-            std::process::ExitCode::SUCCESS
+            Ok(std::process::ExitCode::SUCCESS)
         },
     }
 }
 
 pub trait Cli {
-    fn run_builtin(env: Environment, builtin: BuiltinCommand) -> std::process::ExitCode;
     fn run(env: Environment) -> std::process::ExitCode;
     fn run_default() -> std::process::ExitCode;
 }
 
 impl<S> Cli for S where S: CliEnums + CommandProvider, S::Enum: CommandExecutor {
-    fn run_builtin(env: Environment, builtin: BuiltinCommand) -> std::process::ExitCode {
-        handle_builtin::<S>(builtin, &env)
-    }
-
     fn run(env: Environment) -> std::process::ExitCode {
         let builder = S::build_cli()
             .unwrap();
@@ -196,7 +235,8 @@ impl<S> Cli for S where S: CliEnums + CommandProvider, S::Enum: CommandExecutor 
 
         match parse_result {
             Ok(SelectionResult::Builtin(builtin)) => {
-                Self::run_builtin(env, builtin)
+                handle_builtin::<S>(&builder, &env, builtin)
+                    .unwrap_or_else(|err| report_error::<S>(&env, err))
             },
 
             Ok(SelectionResult::Command(command_spec, _, partial_command)) => {
@@ -230,16 +270,11 @@ impl<S> Cli for S where S: CliEnums + CommandProvider, S::Enum: CommandExecutor 
 }
 
 pub trait CliAsync {
-    fn run_builtin(env: Environment, builtin: BuiltinCommand<'_>) -> impl Future<Output = std::process::ExitCode>;
     fn run(env: Environment) -> impl Future<Output = std::process::ExitCode>;
     fn run_default() -> impl Future<Output = std::process::ExitCode>;
 }
 
 impl<S> CliAsync for S where S: CliEnums + CommandProvider, S::Enum: CommandExecutorAsync {
-    async fn run_builtin(env: Environment, builtin: BuiltinCommand<'_>) -> std::process::ExitCode {
-        handle_builtin::<S>(builtin, &env)
-    }
-
     async fn run(env: Environment) -> std::process::ExitCode {
         let builder = S::build_cli()
             .unwrap();
@@ -249,7 +284,8 @@ impl<S> CliAsync for S where S: CliEnums + CommandProvider, S::Enum: CommandExec
 
         match parse_result {
             Ok(SelectionResult::Builtin(builtin)) => {
-                Self::run_builtin(env, builtin).await
+                handle_builtin::<S>(&builder, &env, builtin)
+                    .unwrap_or_else(|err| report_error::<S>(&env, err))
             },
 
             Ok(SelectionResult::Command(command_spec, _, partial_command)) => {

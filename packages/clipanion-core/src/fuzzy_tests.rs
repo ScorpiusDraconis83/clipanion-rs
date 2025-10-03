@@ -55,7 +55,7 @@ fn gen_random_positional_spec<R: Rng>(rng: &mut R) -> PositionalSpec {
 
         1 => PositionalSpec::Dynamic {
             name: "positional".to_string(),
-            description: "".to_string(),
+            description: None,
             min_len: rng.random_range(0..3),
             extra_len: gen_optional(rng, |rng| rng.random_range(0..3)),
             is_prefix: false,
@@ -70,7 +70,7 @@ fn gen_random_option_spec<R: Rng>(rng: &mut R) -> OptionSpec {
     OptionSpec {
         primary_name: gen_random_option_name(rng),
         aliases: vec![],
-        description: "".to_string(),
+        description: None,
         min_len: rng.random_range(0..3),
         extra_len: gen_optional(rng, |rng| rng.random_range(0..3)),
         allow_binding: rng.random_bool(0.5),

@@ -1,23 +1,27 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "tokens", derive(serde::Serialize))]
 pub enum Arg<'a> {
+    StartOfInput,
+    User(&'a str, usize),
+    EndOfInput,
+    EndOfPartialInput,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArgKey<'a> {
     StartOfInput,
     User(&'a str),
     EndOfInput,
     EndOfPartialInput,
 }
 
-impl<'a> Arg<'a> {
-    pub fn starts_with(&self, s: &Arg) -> bool {
-        match (self, s) {
-            (Arg::User(a), Arg::User(b)) => a.starts_with(b),
-            _ => false,
-        }
-    }
-
-    pub fn unwrap_user(&self) -> &str {
-        match self {
-            Arg::User(s) => s,
-            _ => panic!("Expected user argument"),
+impl<'a> From<Arg<'a>> for ArgKey<'a> {
+    fn from(arg: Arg<'a>) -> Self {
+        match arg {
+            Arg::StartOfInput => ArgKey::StartOfInput,
+            Arg::User(s, _) => ArgKey::User(s),
+            Arg::EndOfInput => ArgKey::EndOfInput,
+            Arg::EndOfPartialInput => ArgKey::EndOfPartialInput,
         }
     }
 }

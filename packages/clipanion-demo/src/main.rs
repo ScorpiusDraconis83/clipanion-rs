@@ -36,7 +36,7 @@ impl FromStr for HexColor {
 #[cli::path("cp")]
 #[cli::description("Copy files and directories")]
 struct Cp {
-    #[cli::option("-r,--recursive", help = "Copy directories recursively", default = false)]
+    #[cli::option("-r,--recursive", description = "Copy directories recursively", default = false)]
     recursive: bool,
 
     sources: Vec<String>,
@@ -66,13 +66,15 @@ impl Grep {
 #[derive(Debug)]
 #[cli::command]
 #[cli::path("ssh")]
+#[cli::description("Connect to a host")]
 struct Ssh {
-    #[cli::option("-p,--port", help = "Port to connect to", default = 22)]
+    #[cli::option("-p,--port", description = "Port to connect to", default = 22)]
     port: u16,
 
-    #[cli::option("--user", help = "User to connect as", default = "root".to_string())]
+    #[cli::option("--user", description = "User to connect as", default = "root".to_string())]
     user: String,
 
+    #[cli::positional(description = "Host to connect to")]
     host: String,
 }
 
@@ -80,17 +82,6 @@ impl Ssh {
     pub fn execute(&self) {
         println!("{:?}", self);
     }
-}
-
-struct Foo {}
-
-fn foo() {
-    use std::sync::LazyLock;
-    static COMMAND_SPEC: LazyLock<Foo> = LazyLock::new(|| {
-        Foo {}
-    });
-
-    let x = COMMAND_SPEC.deref();
 }
 
 #[cli::command]
@@ -149,7 +140,7 @@ impl YarnRunDefault {
 #[cli::command(proxy)]
 #[cli::path("colorlist")]
 struct ColorList {
-    #[cli::option("--color", help = "Color to list", default = vec![])]
+    #[cli::option("--color", description = "Color to list", default = vec![])]
     color_options: Vec<HexColor>,
 
     colors: Vec<HexColor>,

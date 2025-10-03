@@ -6,7 +6,7 @@ use crate::{shared::{ERROR_NODE_ID, SUCCESS_NODE_ID}, BuiltinCommand, CommandErr
 
 #[derive(Debug)]
 pub enum SelectionResult<'cmds, 'args, T> {
-    Builtin(BuiltinCommand<'cmds>),
+    Builtin(BuiltinCommand<'cmds, 'args>),
     Command(&'cmds CommandSpec, State<'args>, T),
 }
 
@@ -43,24 +43,42 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
         Ok(())
     }
 
-    fn fail_missing_required_options<'a>(&mut self) {
+    fn fail_missing_required_options<'a>(&mut self) -> Result<(), Error<'cmds>> {
+        let mut has_valid_states
+            = None;
+
         for &id in self.candidates.iter() {
             let state
                 = &mut self.states[id];
 
+            if state.node_id != SUCCESS_NODE_ID {
+                continue;
+            }
+
             let command
                 = self.commands[state.context_id];
 
-            let has_missing_required_options
+            let missing_required_options
                 = command.required_options.iter()
-                    .any(|option_id| {
-                        !state.option_values.iter().any(|(id, _)| id == option_id)
-                    });
+                    .filter(|&option_id| !state.option_values.iter().any(|(id, _)| id == option_id))
+                    .map(|option_id| self.commands[state.context_id].components[*option_id].is_option().unwrap().primary_name.as_str())
+                    .collect::<Vec<_>>();
 
-            if has_missing_required_options {
+            if missing_required_options.len() > 0 {
                 state.node_id = ERROR_NODE_ID;
+                if has_valid_states.is_none() {
+                    has_valid_states = Some(Some((command, missing_required_options)));
+                } else if has_valid_states.is_some() {
+                    has_valid_states = Some(None);
+                }
             }
         }
+
+        if let Some(Some((command, missing_required_options))) = has_valid_states {
+            return Err(Error::CommandError(command, CommandError::MissingOptionArguments(missing_required_options.into_iter().map(|option| option.to_string()).collect::<Vec<_>>())));
+        }
+
+        Ok(())
     }
 
     fn prune_by_hydration_results(&mut self, mut hydration_errors: Vec<(usize, CommandError)>) -> Result<(), Error<'cmds>> {
@@ -222,6 +240,14 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
             return Ok(SelectionResult::Builtin(BuiltinCommand::Help(vec![])));
         }
 
+        if self.args.len() == 1 && matches!(self.args[0], "--clipanion-commands") {
+            return Ok(SelectionResult::Builtin(BuiltinCommand::Describe));
+        }
+
+        if self.args.len() > 0 && self.args[0].starts_with("--clipanion-tokens") {
+            return Ok(SelectionResult::Builtin(BuiltinCommand::Tokenize(self.args[1..].to_vec())));
+        }
+
         self.candidates = (0..self.states.len()).collect();
 
         self.prune_by_greediness();
@@ -261,7 +287,7 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
             return Ok(SelectionResult::Builtin(BuiltinCommand::Help(help_contexts)));
         }
 
-        self.fail_missing_required_options();
+        self.fail_missing_required_options()?;
 
         if std::env::var("CLIPANION_DEBUG").is_ok() {
             println!("========== After failing missing required options ==========");
