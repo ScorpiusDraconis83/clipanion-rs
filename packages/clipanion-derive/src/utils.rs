@@ -1,9 +1,30 @@
 use std::collections::HashMap;
 
+use quote::{quote, ToTokens};
+use proc_macro2::TokenStream;
 use syn::{parse::{Parse, ParseStream}, punctuated::Punctuated, Attribute, Expr, ExprLit, Ident, Lit, LitBool, LitStr, Meta, Token};
 
 pub fn to_lit_str<T: AsRef<str>>(str: T) -> LitStr {
     LitStr::new(str.as_ref(), proc_macro2::Span::call_site())
+}
+
+pub trait ToOptionTokens<T> {
+    fn to_option_tokens<F: FnOnce(T) -> TokenStream>(self, f: F) -> TokenStream;
+}
+
+impl<T: ToTokens> ToOptionTokens<T> for Option<T> {
+    fn to_option_tokens<F: FnOnce(T) -> TokenStream>(self, f: F) -> TokenStream {
+        match self {
+            Some(value) => {
+                let value = f(value);
+                quote!{Some(#value)}
+            },
+
+            None => {
+                quote!{None}
+            },
+        }
+    }
 }
 
 #[derive(Clone, Default)]

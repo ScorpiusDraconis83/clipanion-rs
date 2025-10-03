@@ -1,1 +1,6 @@
 /target
+/packages/clipanion-tools/types
+
+.pnp.*
+.yarn/install-state.gz
+.yarn/unplugged

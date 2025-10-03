@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use crate::{shared::Arg, transition::Transition};
+use crate::{shared::ArgKey, transition::Transition};
 
 #[derive(Debug, Clone)]
 pub struct Node<'a, TCheck, TReducer> {
     pub context: usize,
     pub dynamics: Vec<(TCheck, Transition<TReducer>)>,
     pub shortcuts: Vec<Transition<TReducer>>,
-    pub statics: HashMap<Arg<'a>, Vec<Transition<TReducer>>>,
+    pub statics: HashMap<ArgKey<'a>, Vec<Transition<TReducer>>>,
 }
 
 impl<'a, TCheck, TReducer> Node<'a, TCheck, TReducer> {

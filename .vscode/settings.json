@@ -1,4 +1,15 @@
 {
+  "rust-analyzer.cargo.features": ["tokens"],
   "rust-analyzer.inlayHints.lifetimeElisionHints.enable": "always",
-  "rust-analyzer.inlayHints.genericParameterHints.lifetime.enable": true
+  "rust-analyzer.inlayHints.genericParameterHints.lifetime.enable": true,
+  "search.exclude": {
+    "**/.yarn": true,
+    "**/.pnp.*": true
+  },
+  "eslint.nodePath": ".yarn/sdks",
+  "typescript.tsdk": ".yarn/sdks/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
 }

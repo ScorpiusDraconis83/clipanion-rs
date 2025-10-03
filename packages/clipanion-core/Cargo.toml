@@ -8,8 +8,15 @@ description = "A simple but powerful CLI framework"
 [dependencies]
 colored = "2.1.0"
 itertools = "0.14.0"
+serde = { version = "1.0.228", optional = true, features = ["serde_derive"] }
 thiserror = "2.0.7"
+ts-rs = "10.1"
 
 [dev-dependencies]
 rand = "0.9.1"
 rand_seeder = "0.4.0"
+
+[features]
+default = []
+serde = ["dep:serde"]
+tokens = ["serde"]

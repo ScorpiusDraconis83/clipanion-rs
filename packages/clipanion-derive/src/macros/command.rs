@@ -3,7 +3,7 @@ use proc_macro2::Span;
 use quote::quote;
 use syn::{Attribute, DeriveInput, Expr, ExprLit, Fields, Ident, Lit, LitStr, Meta, Path};
 
-use crate::utils::{to_lit_str, AttributeBag, CliAttributes, OptionBag};
+use crate::utils::{to_lit_str, AttributeBag, CliAttributes, OptionBag, ToOptionTokens};
 
 macro_rules! expect_lit {
     ($expression:path) => {
@@ -181,11 +181,11 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 }
             }
 
-            let description = option_bag.attributes.take("help")
+            let description = option_bag.attributes.take("description")
                 .map(expect_lit!(Lit::Str))
                 .transpose()?
                 .map(|lit| lit.value())
-                .unwrap_or_default();
+                .to_option_tokens(|s| quote!{#s.to_string()});
 
             let preferred_name_lit = option_bag.path
                 .first()
@@ -326,7 +326,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 command_spec.components.push(clipanion::core::Component::Option(clipanion::core::OptionSpec {
                     primary_name: #preferred_name_lit.to_string(),
                     aliases: vec![#(#aliases_lit.to_string()),*],
-                    description: #description.to_string(),
+                    description: #description,
                     is_hidden: false,
                     is_required: #is_required,
                     allow_binding: false,
@@ -361,7 +361,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                         command_spec.components.push(clipanion::core::Component::Option(clipanion::core::OptionSpec {
                             primary_name: #no_option_name_lit.to_string(),
                             aliases: vec![],
-                            description: "".to_string(),
+                            description: None,
                             is_hidden: true,
                             is_required: false,
                             allow_binding: false,
@@ -375,11 +375,11 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
             option_bag.attributes.expect_empty()?;
         } else if let Some(mut positional_bag) = cli_attributes.take_unique::<AttributeBag>("positional")? {
-            let description = positional_bag.take("help")
+            let description = positional_bag.take("description")
                 .map(expect_lit!(Lit::Str))
                 .transpose()?
                 .map(|lit| lit.value())
-                .unwrap_or_default();
+                .to_option_tokens(|s| quote!{#s.to_string()});
 
             let is_prefix = positional_bag.take("is_prefix")
                 .map(expect_lit!(Lit::Bool))
@@ -415,7 +415,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 builder.push(quote! {
                     command_spec.components.push(clipanion::core::Component::Positional(clipanion::core::PositionalSpec::Dynamic {
                         name: #field_name_upper.to_string(),
-                        description: #description.to_string(),
+                        description: #description,
                         min_len: 0,
                         extra_len: None,
                         is_prefix: #is_prefix,
@@ -467,7 +467,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 builder.push(quote! {
                     command_spec.components.push(clipanion::core::Component::Positional(clipanion::core::PositionalSpec::Dynamic {
                         name: #field_name_upper.to_string(),
-                        description: #description.to_string(),
+                        description: #description,
                         min_len: #min_len,
                         extra_len: #extra_len,
                         is_prefix: #is_prefix,

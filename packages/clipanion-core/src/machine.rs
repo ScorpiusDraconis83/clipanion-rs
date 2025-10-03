@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fmt::Debug};
 
-use crate::{node::Node, shared::{is_terminal_node, Arg, CUSTOM_NODE_ID, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, transition::Transition};
+use crate::{node::Node, shared::{is_terminal_node, ArgKey, CUSTOM_NODE_ID, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, transition::Transition};
 
 pub struct Machine<'a, TCheck, TReducer> {
     pub contexts: Vec<usize>,
@@ -68,7 +68,7 @@ impl<'a, TCheck, TReducer> Machine<'a, TCheck, TReducer> {
         self.nodes[from].shortcuts.push(Transition::new(to, Default::default()));
     }
 
-    pub fn register_static(&mut self, from: usize, key: Arg<'a>, to: usize, reducer: TReducer) {
+    pub fn register_static(&mut self, from: usize, key: ArgKey<'a>, to: usize, reducer: TReducer) {
         self.nodes[from].statics.entry(key).or_default().push(Transition::new(to, reducer));
     }
 

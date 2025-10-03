@@ -1,0 +1,6 @@
+{
+  "name": "@clipanion/tools",
+  "devDependencies": {
+    "@types/node": "^24.6.2"
+  }
+}
