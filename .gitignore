@@ -1,6 +1,7 @@
 /target
 /packages/clipanion-tools/types
 
+dist
 .astro
 .pnp.*
 .yarn/install-state.gz

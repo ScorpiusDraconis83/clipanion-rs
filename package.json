@@ -1,5 +1,4 @@
 {
-  "name": "clipanion-rs",
   "type": "module",
   "packageManager": "yarn@4.10.3",
   "workspaces": [
@@ -10,10 +9,12 @@
     "@types/node": "^24.6.2",
     "@yarnpkg/eslint-config": "^3.1.0",
     "eslint": "^9.36.0",
+    "tsup": "^8.5.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },
   "scripts": {
+    "global:build": "tsup",
     "gen-types": "cargo test --all-features --lib builder::export_bindings"
   }
 }
