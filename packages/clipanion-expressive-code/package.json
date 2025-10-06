@@ -16,11 +16,11 @@
     "exports": {
       "./package.json": "./package.json",
       ".": {
-        "import": "./dist/index.cjs",
+        "default": "./dist/index.cjs",
         "types": "./dist/index.d.ts"
       },
       "./extra": {
-        "import": "./dist/extra.cjs",
+        "default": "./dist/extra.cjs",
         "types": "./dist/extra.d.ts"
       }
     }
