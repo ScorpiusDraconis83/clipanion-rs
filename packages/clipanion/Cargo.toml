@@ -16,5 +16,5 @@ serde_json = { version = "1.0.145", optional = true }
 [features]
 default = []
 anyhow = ["dep:anyhow"]
-serde = ["dep:serde_json"]
+serde = ["clipanion-core/serde", "dep:serde_json"]
 tokens = ["clipanion-core/tokens", "serde"]
