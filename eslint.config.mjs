@@ -5,6 +5,7 @@ export default [
   {
     ignores: [
       `.yarn`,
+      `**/dist`,
       `packages/clipanion-tools/types`,
     ],
   },
