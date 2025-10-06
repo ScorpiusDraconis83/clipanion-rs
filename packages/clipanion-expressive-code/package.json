@@ -1,0 +1,14 @@
+{
+  "name": "@clipanion/expressive-code",
+  "dependencies": {
+    "@clipanion/tools": "workspace:^",
+    "@yarnpkg/parsers": "^3.0.3",
+    "style-to-object": "^1.0.11"
+  },
+  "peerDependencies": {
+    "@expressive-code/core": "*"
+  },
+  "devDependencies": {
+    "@expressive-code/core": "^0.41.3"
+  }
+}

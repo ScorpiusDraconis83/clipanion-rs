@@ -1,6 +1,8 @@
 /target
 /packages/clipanion-tools/types
 
+.astro
 .pnp.*
 .yarn/install-state.gz
 .yarn/unplugged
+node_modules

@@ -8,9 +8,54 @@ export * from './types';
 
 const execFileP = promisify(execFile);
 
+function consumeTokensWhile(args: Array<string>, tokens: Array<Token>, tokenIndex: number, predicate: (token: Token) => boolean) {
+  const isTokenRightAfter = (token: Token, previousToken: Token) => {
+    return previousToken.slice.end === args[previousToken.argIndex]!.length
+      ? token.argIndex === previousToken.argIndex + 1 && token.slice.start === 0
+      : token.argIndex === previousToken.argIndex && token.slice.start === previousToken.slice.end;
+  };
+
+  const startTokenIndex = tokenIndex;
+  const startToken = tokens[tokenIndex]!;
+
+  let endToken: Token | null = startToken;
+  let endTokenIndex = tokenIndex;
+
+  while (tokenIndex + 1 < tokens.length) {
+    const nextToken = tokens[tokenIndex + 1]!;
+    if (!predicate(nextToken))
+      break;
+
+    if (!isTokenRightAfter(nextToken, endToken))
+      break;
+
+    endToken = nextToken;
+    endTokenIndex += 1;
+
+    tokenIndex += 1;
+  }
+
+  const start = {
+    tokenIndex: startTokenIndex,
+    argIndex: startToken.argIndex,
+    offset: startToken.slice.start,
+  };
+
+  const end = {
+    tokenIndex: endTokenIndex,
+    argIndex: endToken.argIndex,
+    offset: endToken.slice.end,
+  };
+
+  return {
+    start,
+    end,
+  };
+}
+
 export class ClipanionBinary {
   private readonly binPath: string;
-  private readonly commandSpecs: Promise<Array<CommandSpec>>;
+  private readonly commandSpecs: Promise<Array<CommandSpec> | null>;
 
   constructor(binPath: string) {
     this.binPath = binPath;
@@ -19,88 +64,85 @@ export class ClipanionBinary {
   }
 
   async describeCommandLine(args: Array<string>) {
-    const tokenSet = await this.query<TokenSet>([`--clipanion-tokens`, ...args]);
-    const commandSpec = (await this.commandSpecs)[tokenSet.commandId]!;
+    const queryResult = await this.query<TokenSet>([`--clipanion-tokens`, ...args]);
+    if (!queryResult)
+      return null;
 
-    const createTags = () => ({
-      type: `unknown` as `unknown` | `keyword` | `positional` | `option` | `value`,
-      description: null as string | null,
+    const commandSpecs = await this.commandSpecs;
+    if (!commandSpecs)
+      throw new Error(`Failed to get command specs for binary '${this.binPath}'`);
+
+    const {commandId, tokens} = queryResult;
+    const commandSpec = commandSpecs[commandId]!;
+
+    const longestPath = commandSpec.paths.reduce((a, b) => {
+      return a.length > b.length ? a : b;
     });
 
-    const explodedArgs = args.map(arg => [...arg].map(char => ({
-      char,
-      tags: createTags(),
-    })));
-
-    const applyToSlice = <T extends keyof ReturnType<typeof createTags>>(token: Token, key: T, value: ReturnType<typeof createTags>[T]) => {
-      for (let i = token.slice.start; i < token.slice.end; i++) {
-        explodedArgs[token.argIndex]![i]!.tags[key] = value;
-      }
-    };
-
-    for (const token of tokenSet.tokens) {
-      switch (token.type) {
-        case `keyword`:
-          applyToSlice(token, `type`, `keyword`);
-          applyToSlice(token, `description`, commandSpec.description);
-          break;
-        case `positional`:
-          applyToSlice(token, `type`, `positional`);
-          applyToSlice(token, `description`, commandSpec.components[token.componentId]!.description);
-          break;
-        case `option`:
-          applyToSlice(token, `type`, `option`);
-          applyToSlice(token, `description`, commandSpec.components[token.componentId]!.description);
-          break;
-        case `value`:
-          applyToSlice(token, `type`, `value`);
-          applyToSlice(token, `description`, commandSpec.components[token.componentId]!.description);
-          break;
-      }
-    }
-
-    const finalTokens: Array<{
-      text: string;
-      tags: ReturnType<typeof createTags>;
+    const annotations: Array<{
+      type: Token[`type`];
+      start: {tokenIndex: number, argIndex: number, offset: number};
+      end: {tokenIndex: number, argIndex: number, offset: number};
+      description: string | null;
     }> = [];
 
-    let currentStringifiedTags: string | null = null;
+    for (let t = 0; t < tokens.length; t++) {
+      const token = tokens[t]!;
+      if (token.type === `syntax`)
+        continue;
 
-    const pushChar = (char: {
-      char: string;
-      tags: ReturnType<typeof createTags>;
-    }) => {
-      const stringifiedTags = JSON.stringify(char.tags);
+      const description = token.type === `keyword`
+        ? commandSpec.description
+        : commandSpec.components[token.componentId]!.description;
 
-      if (stringifiedTags !== currentStringifiedTags) {
-        currentStringifiedTags = stringifiedTags;
+      if (description === null)
+        continue;
 
-        finalTokens.push({
-          text: ``,
-          tags: char.tags,
-        });
-      }
+      switch (token.type) {
+        case `keyword`: {
+          const {start, end} = consumeTokensWhile(args, tokens, t, token => token.type === `keyword`);
+          annotations.push({
+            start,
+            end,
+            description,
+            type: `keyword`,
+          });
+          t = end.tokenIndex;
+          break;
+        }
 
-      finalTokens[finalTokens.length - 1]!.text += char.char;
-    };
+        case `option`: {
+          const {start, end} = consumeTokensWhile(args, tokens, t, token => token.type === `assign` || token.type === `value`);
+          annotations.push({
+            start,
+            end,
+            description,
+            type: `option`,
+          });
+          t = end.tokenIndex;
+          break;
+        }
 
-    for (const [argIndex, chars] of explodedArgs.entries()) {
-      if (argIndex > 0) {
-        pushChar({
-          char: ` `,
-          tags: createTags(),
-        });
-      }
-
-      for (const char of chars) {
-        pushChar(char);
+        default: {
+          annotations.push({
+            start: {tokenIndex: t, argIndex: token.argIndex, offset: token.slice.start},
+            end: {tokenIndex: t, argIndex: token.argIndex, offset: token.slice.end},
+            description,
+            type: token.type,
+          });
+          break;
+        }
       }
     }
 
-    return finalTokens;
+    return {
+      command: longestPath,
+      tokens,
+      annotations,
+    };
   }
 
-  private async query<T>(args: Array<string>): Promise<T> {
+  private async query<T>(args: Array<string>): Promise<T | null> {
     const result = await execFileP(this.binPath, args, {
       encoding: `utf-8`,
     });

@@ -51,6 +51,7 @@ pub enum Token {
     Assign {
         arg_index: usize,
         slice: Range<usize>,
+        component_id: usize,
     },
     Value {
         arg_index: usize,
@@ -310,6 +311,7 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
                     state.tokens.push(Token::Assign {
                         arg_index,
                         slice: *skip_len..*skip_len + 1,
+                        component_id: *option_id,
                     });
 
                     state.tokens.push(Token::Value {
