@@ -9,7 +9,7 @@ export default defineConfig([{
   sourcemap: true,
   clean: true,
 }, {
-  entry: [`packages/clipanion-expressive-code/index.ts`],
+  entry: [`packages/clipanion-expressive-code/index.ts`, `packages/clipanion-expressive-code/extra.ts`],
   outDir: `packages/clipanion-expressive-code/dist`,
   dts: true,
   splitting: false,

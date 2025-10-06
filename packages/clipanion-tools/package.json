@@ -4,9 +4,11 @@
     "@types/node": "^24.6.2"
   },
   "publishConfig": {
+    "type": "commonjs",
     "exports": {
+      "./package.json": "./package.json",
       ".": {
-        "import": "./dist/index.js",
+        "import": "./dist/index.cjs",
         "types": "./dist/index.d.ts"
       }
     }

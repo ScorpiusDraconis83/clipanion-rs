@@ -12,13 +12,15 @@
     "@expressive-code/core": "^0.41.3"
   },
   "publishConfig": {
+    "type": "commonjs",
     "exports": {
+      "./package.json": "./package.json",
       ".": {
-        "import": "./dist/index.js",
+        "import": "./dist/index.cjs",
         "types": "./dist/index.d.ts"
       },
       "./extra": {
-        "import": "./dist/extra.js",
+        "import": "./dist/extra.cjs",
         "types": "./dist/extra.d.ts"
       }
     }
