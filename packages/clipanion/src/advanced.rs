@@ -98,16 +98,22 @@ fn report_error<'cmds, 'args, S: CommandProvider>(env: &Environment, err: clipan
 fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuilder<'static>, env: &'args Environment, builtin: BuiltinCommand<'cmds, 'args>) -> Result<std::process::ExitCode, clipanion_core::Error<'cmds>> {
     match builtin {
         BuiltinCommand::Describe => {
-            let commands
-                = S::registered_commands()?;
+            #[cfg(not(feature = "serde"))] {
+                return Err(clipanion_core::Error::InternalError);
+            }
 
-            let commands_json
-                = serde_json::to_string(&commands)
-                    .map_err(|_| clipanion_core::Error::InternalError)?;
+            #[cfg(feature = "serde")] {
+                let commands
+                    = S::registered_commands()?;
 
-            println!("{}", commands_json);
+                let commands_json
+                    = serde_json::to_string(&commands)
+                        .map_err(|_| clipanion_core::Error::InternalError)?;
 
-            Ok(std::process::ExitCode::SUCCESS)
+                println!("{}", commands_json);
+
+                Ok(std::process::ExitCode::SUCCESS)
+            }
         },
 
         BuiltinCommand::Tokenize(command_line) => {

@@ -80,7 +80,6 @@ dependencies = [
  "clipanion-derive",
  "colored",
  "num-traits",
- "serde",
  "serde_json",
 ]
 
