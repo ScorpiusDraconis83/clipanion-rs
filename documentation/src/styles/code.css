@@ -1,0 +1,58 @@
+:root {
+  --cli-color-block-binary: var(--color-purple-500);
+  --cli-color-block-keyword: var(--color-purple-400);
+  --cli-color-block-positional: var(--color-blue-400);
+  --cli-color-block-syntax: var(--color-purple-400);
+  --cli-color-block-option: var(--color-sky-600);
+  --cli-color-block-assign: var(--color-sky-600);
+  --cli-color-block-value: var(--color-yellow-500);
+}
+
+.expressive-code .tooltip-container {
+  display: none;
+  position: absolute;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.expressive-code [data-tooltip] {
+  text-decoration: underline !important;
+  text-decoration-color: #000000;
+  text-underline-offset: 2px;
+}
+
+.expressive-code [data-tooltip]:not(a) {
+  text-decoration-style: dotted !important;
+  cursor: help;
+}
+
+.expressive-code a {
+  color: inherit;
+}
+
+.expressive-code .tooltip {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  margin-bottom: 8px;
+  width: max-content;
+  border-radius: 2px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.9);
+  color: #ffffff;
+  transform: translateX(-50%);
+}
+
+.expressive-code .tooltip::after {
+  content: '';
+
+  position: absolute;
+  top: 100%;
+  left: 50%;
+
+  margin-left: -5px;
+
+  border-width: 5px;
+  border-style: solid;
+  border-color: rgba(0, 0, 0, 0.9) transparent transparent transparent;
+}

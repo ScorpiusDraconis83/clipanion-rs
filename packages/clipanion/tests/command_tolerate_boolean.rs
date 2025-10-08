@@ -11,7 +11,10 @@ impl MyCommand {
     }
 }
 
-program!(MyCli, [MyCommand]);
+#[cli::program]
+enum MyCli {
+    MyCommand(MyCommand),
+}
 
 test_cli_success!(it_accepts_booleans, MyCli, MyCommand, &["--foo"], |command| {
     assert_eq!(command.value, Some(None));

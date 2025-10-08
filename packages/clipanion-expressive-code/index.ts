@@ -1,6 +1,6 @@
-import {ClipanionBinary}                                                                                                                              from '@clipanion/tools';
-import {Element, Parents, h}                                                                                                                          from '@expressive-code/core/hast';
-import {AnnotationBaseOptions, AnnotationRenderOptions, AnnotationRenderPhase, ExpressiveCodeAnnotation, ExpressiveCodePlugin, InlineStyleAnnotation} from '@expressive-code/core';
+import {ClipanionBinary}                                                                                                                                                  from '@clipanion/tools';
+import {type Element, type Parents, h}                                                                                                                                    from '@expressive-code/core/hast';
+import {type AnnotationBaseOptions, type AnnotationRenderOptions, type AnnotationRenderPhase, type ExpressiveCodePlugin, ExpressiveCodeAnnotation, InlineStyleAnnotation} from '@expressive-code/core';
 
 function wrapInto(children: Array<Parents>, wrapper: Element) {
   for (const child of children) {
@@ -82,7 +82,7 @@ export function clipanionExpressiveCode({clis}: PluginOptions): ExpressiveCodePl
           if (line.text.startsWith(`#`) || line.text.length === 0)
             continue;
 
-          const words = [...line.text.matchAll(/[^\s]+/g)];
+          const words = [...line.text.matchAll(/"[^"]+"|'[^']+'|[^\s]+/g)];
           if (words.length === 0)
             continue;
 

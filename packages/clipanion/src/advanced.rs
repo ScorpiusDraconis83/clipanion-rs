@@ -200,7 +200,7 @@ fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuil
 
                 let mut commands_and_paths
                     = commands.into_iter()
-                        .map(|command| (command.longest_path(), command))
+                        .map(|command| (&command.primary_path, command))
                         .collect::<Vec<_>>();
 
                 commands_and_paths.sort_by(|a, b| {

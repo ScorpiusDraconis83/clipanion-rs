@@ -1,15 +1,16 @@
 use quote::format_ident;
 
-pub fn get_cli_enum_names(cli_ident: &syn::Ident) -> (syn::Ident, syn::Ident) {
-    let partial_enum_ident
-        = format_ident!("{}PartialEnum", cli_ident);
-
-    let enum_ident
-        = format_ident!("{}Enum", cli_ident);
-
-    (partial_enum_ident, enum_ident)
+macro_rules! expect_lit {
+    ($expression:path) => {
+        |val| match val {
+            Expr::Lit(ExprLit {lit: $expression(value), ..}) => Ok(value),
+            _ => Err(syn::Error::new_spanned(val, "Invalid literal type")),
+        }
+    };
 }
 
-pub fn get_command_variant_ident(index: usize, _: &syn::Path) -> syn::Ident {
-    format_ident!("_Variant{}", index + 1)
+pub(crate) use expect_lit;
+
+pub fn get_partial_enum_ident(enum_ident: &syn::Ident) -> syn::Ident {
+    format_ident!("Partial{}", enum_ident)
 }

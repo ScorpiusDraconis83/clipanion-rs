@@ -3,16 +3,7 @@ use proc_macro2::Span;
 use quote::quote;
 use syn::{Attribute, DeriveInput, Expr, ExprLit, Fields, Ident, Lit, LitStr, Meta, Path};
 
-use crate::utils::{to_lit_str, AttributeBag, CliAttributes, OptionBag, ToOptionTokens};
-
-macro_rules! expect_lit {
-    ($expression:path) => {
-        |val| match val {
-            Expr::Lit(ExprLit {lit: $expression(value), ..}) => Ok(value),
-            _ => Err(syn::Error::new_spanned(val, "Invalid literal type")),
-        }
-    };
-}
+use crate::{shared::expect_lit, utils::{to_lit_str, AttributeBag, CliAttributes, OptionBag, ToOptionTokens}};
 
 pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream, syn::Error> {
     let syn::Data::Struct(struct_input) = &mut input.data else {
@@ -57,10 +48,38 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
         .map(|lit| lit.value)
         .unwrap_or(false);
 
-    let paths_lits
+    let mut paths_lits
         = command_cli_attributes.take_paths()?;
 
     command_attribute_bag.expect_empty()?;
+
+    if is_default {
+        paths_lits.push(vec![]);
+    }
+
+    if paths_lits.is_empty() {
+        return Err(syn::Error::new_spanned(input.ident, "The command must have a path"));
+    }
+
+    let primary_path_index
+        = paths_lits.iter()
+            .enumerate()
+            .max_by_key(|(_, path)| path.len())
+            .map(|(index, _)| index)
+            .unwrap_or(0);
+
+    let primary_path
+        = paths_lits.remove(primary_path_index);
+
+    builder.push(quote! {
+        command_spec.primary_path = vec![#(#primary_path.to_string()),*];
+    });
+
+    for path_lits in paths_lits {
+        builder.push(quote! {
+            command_spec.aliases.push(vec![#(#path_lits.to_string()),*]);
+        });
+    }
 
     let mut partial_struct_members
         = vec![];
@@ -68,22 +87,6 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
         = vec![];
     let mut initialization_members
         = vec![];
-
-    if !is_default && paths_lits.is_empty() {
-        return Err(syn::Error::new_spanned(input.ident, "The command must have a path"));
-    }
-
-    if is_default {
-        builder.push(quote! {
-            command_spec.paths.push(vec![]);
-        });
-    }
-
-    for path_lits in paths_lits {
-        builder.push(quote! {
-            command_spec.paths.push(vec![#(#path_lits.to_string()),*]);
-        });
-    }
 
     for field in &mut struct_input.fields {
         let field_ident = &field.ident;
@@ -188,7 +191,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 .to_option_tokens(|s| quote!{#s.to_string()});
 
             let preferred_name_lit = option_bag.path
-                .first()
+                .iter().max_by_key(|name| name.len())
                 .map(to_lit_str)
                 .unwrap();
 
@@ -510,7 +513,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
             }
         }
 
-        impl TryFrom<#partial_struct_ident> for #struct_name {
+        impl ::core::convert::TryFrom<#partial_struct_ident> for #struct_name {
             type Error = ::clipanion::core::CommandError;
 
             fn try_from(partial: #partial_struct_ident) -> Result<Self, ::clipanion::core::CommandError> {

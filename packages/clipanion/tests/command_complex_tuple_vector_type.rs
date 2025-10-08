@@ -58,7 +58,10 @@ impl MyCommand {
     }
 }
 
-program!(MyCli, [MyCommand]);
+#[cli::program]
+enum MyCli {
+    MyCommand(MyCommand),
+}
 
 test_cli_success!(it_works, MyCli, MyCommand, &["--size", "10x20", "red"], |command| {
     assert_eq!(command.size, (Size {_width: 10, _height: 20}, Color::Red));

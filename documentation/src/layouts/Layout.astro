@@ -1,0 +1,24 @@
+---
+import "../styles/global.css";
+
+import {getCollection} from 'astro:content';
+
+const commands = await getCollection(`git`);
+---
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+  </head>
+  <body class={`bg-stone-100 flex gap-8 p-8 min-h-screen`}>
+    <nav class={`bg-white border-stone-200 border rounded-sm p-8 flex-none w-64`}>
+      <ul>
+        {commands.map(command => (
+          <li><a href={`/${command.id}`}>{command.id}</a></li>
+        ))}
+      </ul>
+    </nav>
+    <main class={`bg-white border-stone-200 border rounded-sm p-8 flex-auto space-y-4`}>
+      <slot />
+    </main>
+  </body>
+</html>

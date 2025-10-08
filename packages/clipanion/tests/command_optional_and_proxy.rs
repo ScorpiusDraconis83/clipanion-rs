@@ -11,7 +11,10 @@ impl MyCommand {
     }
 }
 
-program!(MyCli, [MyCommand]);
+#[cli::program]
+enum MyCli {
+    MyCommand(MyCommand),
+}
 
 test_cli_success!(it_works_with_the_positional, MyCli, MyCommand, &["foo", "--version"], |command| {
     assert_eq!(command.value, Some("foo".to_string()));

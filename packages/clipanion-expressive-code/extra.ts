@@ -1,7 +1,11 @@
-import {Element, ElementContent, h} from '@expressive-code/core/hast';
-import {ExpressiveCodePlugin}       from '@expressive-code/core';
+import {type Element, type ElementContent, h} from '@expressive-code/core/hast';
+import {type ExpressiveCodePlugin}            from '@expressive-code/core';
 
-export function optimizer({mergeOrder = [`className`, `style`]}: {mergeOrder?: Array<string>}): ExpressiveCodePlugin {
+export type OptimizerOptions = {
+  mergeOrder?: Array<string>;
+};
+
+export function optimizer({mergeOrder = [`className`, `style`]}: {mergeOrder?: Array<string>} = {}): ExpressiveCodePlugin {
   function processNode(node: ElementContent, attributes: Array<string>) {
     if (node.type === `element`) {
       for (const attribute of attributes)

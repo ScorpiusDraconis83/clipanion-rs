@@ -1,5 +1,14 @@
 {
   "name": "@clipanion/expressive-code",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./index.ts"
+    },
+    "./extra": {
+      "default": "./extra.ts"
+    }
+  },
   "dependencies": {
     "@clipanion/tools": "workspace:^",
     "@yarnpkg/parsers": "^3.0.3",

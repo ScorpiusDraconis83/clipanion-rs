@@ -4,6 +4,8 @@ use quote::{quote, ToTokens};
 use proc_macro2::TokenStream;
 use syn::{parse::{Parse, ParseStream}, punctuated::Punctuated, Attribute, Expr, ExprLit, Ident, Lit, LitBool, LitStr, Meta, Token};
 
+use crate::shared::expect_lit;
+
 pub fn to_lit_str<T: AsRef<str>>(str: T) -> LitStr {
     LitStr::new(str.as_ref(), proc_macro2::Span::call_site())
 }
@@ -46,15 +48,30 @@ impl AttributeBag {
     }
 }
 
+fn extract_attribute_name(input: ParseStream) -> syn::Result<String> {
+    if input.peek(Token![async]) {
+        input.parse::<Token![async]>()?;
+        return Ok("async".to_string());
+    }
+
+    let ident: Ident
+        = input.parse()?;
+    let name
+        = ident.to_string();
+
+    Ok(name)
+}
+
 impl Parse for AttributeBag {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         // Prepare a vector to hold the named parameters
-        let mut attributes = HashMap::new();
+        let mut attributes
+            = HashMap::new();
         
         // Parse the remaining named parameters
         while !input.is_empty() {
-            let ident: Ident = input.parse()?;
-            let name = ident.to_string();
+            let name
+                = extract_attribute_name(input)?;
 
             if input.peek(Token![=]) {
                 input.parse::<Token![=]>()?;  // Consume the equals sign
@@ -135,6 +152,8 @@ impl Parse for OptionBag {
 
 #[derive(Clone, Default)]
 pub struct CliAttributes {
+    pub description: Option<String>,
+    pub details: Option<String>,
     pub attributes: HashMap<String, Vec<Attribute>>,
 }
 
@@ -165,26 +184,61 @@ impl CliAttributes {
     }
 
     pub fn extract(attrs: &mut Vec<Attribute>) -> syn::Result<Self> {
-        let mut cli_attributes = CliAttributes::default();
-        let mut remaining_attributes = vec![];
+        let mut cli_attributes
+            = CliAttributes::default();
+        let mut remaining_attributes
+            = vec![];
     
         for attr in std::mem::take(attrs).into_iter(){
-            let path = attr.path();
-            if path.segments.is_empty() || path.segments[0].ident != "cli" {
+            let path
+                = attr.path();
+
+            if path.segments.is_empty() {
                 remaining_attributes.push(attr.clone());
                 continue;
             }
-    
-            if path.segments.len() != 2 {
-                return Err(syn::Error::new_spanned(attr, "Expected a named attribute"));
+
+            match path.segments[0].ident.to_string().as_str() {
+                "doc" => {
+                    let Meta::NameValue(meta) = &attr.meta else {
+                        return Err(syn::Error::new_spanned(attr, "Expected a name value attribute"));
+                    };
+
+                    let Expr::Lit(ExprLit {lit: Lit::Str(text), ..}) = &meta.value else {
+                        return Err(syn::Error::new_spanned(attr, "Expected a string literal"));
+                    };
+
+                    let text
+                        = text.value().trim().to_string();
+                    let mut lines
+                        = text.split('\n').peekable();
+
+                    cli_attributes.description = lines.next()
+                        .map(|line| line.to_string());
+
+                    if lines.peek().is_some() {
+                        cli_attributes.details = Some(lines.collect::<Vec<_>>().join("\n"));
+                    }
+                },
+
+                "cli" => {
+                    if path.segments.len() != 2 {
+                        return Err(syn::Error::new_spanned(attr, "Expected a named attribute"));
+                    }
+            
+                    let name
+                        = path.segments[1].ident.to_string();
+            
+                    cli_attributes.attributes.entry(name)
+                        .or_insert_with(Vec::new)
+                        .push(attr);
+                },
+
+                _ => {
+                    remaining_attributes.push(attr.clone());
+                },
             }
-    
-            let name = path.segments[1].ident.to_string();
-    
-            cli_attributes.attributes.entry(name)
-                .or_insert_with(Vec::new)
-                .push(attr);
-        }
+       }
 
         *attrs = remaining_attributes;
     

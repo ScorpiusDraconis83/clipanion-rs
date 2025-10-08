@@ -28,6 +28,7 @@
     ]
   },
   "include": [
+    "./documentation/.astro/types.d.ts",
     "./**/*.tsx",
     "./**/*.ts"
   ]

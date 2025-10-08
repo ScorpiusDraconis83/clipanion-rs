@@ -21,7 +21,11 @@ impl MyCommand {
     }
 }
 
-program!(MyCli, [MyProxyCommand, MyCommand]);
+#[cli::program]
+enum MyCli {
+    MyProxyCommand(MyProxyCommand),
+    MyCommand(MyCommand),
+}
 
 test_cli_success!(it_works, MyCli, MyCommand, &["foo", "bar"], |command| {
     assert_eq!(command.arg, "bar");

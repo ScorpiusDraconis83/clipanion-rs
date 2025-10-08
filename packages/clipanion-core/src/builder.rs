@@ -621,26 +621,34 @@ impl std::fmt::Display for Component {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+#[cfg_attr(feature = "serde", derive(ts_rs::TS))]
+#[cfg_attr(feature = "serde", ts(export, export_to = "index.ts"))]
+pub struct Example {
+    pub command: String,
+    pub description: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[cfg_attr(feature = "serde", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", ts(export, export_to = "index.ts"))]
 pub struct CommandSpec {
+    pub primary_path: Vec<String>,
+    pub aliases: Vec<Vec<String>>,
     pub category: Option<String>,
     pub description: Option<String>,
     pub details: Option<String>,
-    pub paths: Vec<Vec<String>>,
+    pub examples: Vec<Example>,
     pub components: Vec<Component>,
     pub required_options: Vec<usize>,
 }
 
 impl std::fmt::Display for CommandSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let primary_path = self.paths.iter()
-            .max_by_key(|path| path.len())
-            .unwrap();
-
         let (prefix_components, suffix_components): (Vec<_>, _)
             = self.components.iter()
                 .filter(|component| !matches!(component, Component::Option(OptionSpec {is_hidden: true, ..})))
@@ -649,7 +657,7 @@ impl std::fmt::Display for CommandSpec {
         let components
             = prefix_components.into_iter()
                 .map(|component| component.to_string())
-                .chain(primary_path.iter().map(|segment| segment.to_string()))
+                .chain(self.primary_path.iter().map(|segment| segment.to_string()))
                 .chain(suffix_components.into_iter().map(|component| component.to_string()));
 
         format_collection(f, components, " ")?;
@@ -660,14 +668,7 @@ impl std::fmt::Display for CommandSpec {
 
 impl CommandSpec {
     pub fn is_default(&self) -> bool {
-        self.paths.is_empty() || self.paths.iter().all(|path| path.is_empty())
-    }
-
-    pub fn longest_path(&self) -> Vec<&str> {
-        self.paths.iter()
-            .max_by_key(|path| path.len())
-            .map(|path| path.iter().map(|segment| segment.as_ref()).collect())
-            .unwrap_or_default()
+        self.primary_path.is_empty() || self.aliases.iter().any(|path| path.is_empty())
     }
 
     pub fn usage(&self) -> CommandUsageResult {
@@ -1028,11 +1029,16 @@ impl<'cmds> CommandBuilderContext<'cmds> {
         current_node_id
             = self.attach_positionals(current_node_id, &prefix_components);
 
-        if !self.spec.paths.is_empty() && !self.spec.paths.iter().all(|path| path.is_empty()) {
+        let paths
+            = self.spec.aliases.iter()
+                .chain(once(&self.spec.primary_path))
+                .collect::<Vec<_>>();
+
+        if !paths.is_empty() && !paths.iter().all(|path| path.is_empty()) {
             let post_paths_node_id
                 = self.machine.create_node();
 
-            for path in &self.spec.paths {
+            for path in &paths {
                 let mut current_path_node_id
                     = current_node_id;
 

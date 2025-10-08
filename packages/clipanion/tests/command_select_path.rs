@@ -33,7 +33,12 @@ impl BarCommand {
     }
 }
 
-program!(MyCli, [FooCommand, BazCommand, BarCommand]);
+#[cli::program]
+enum MyCli {
+    FooCommand(FooCommand),
+    BazCommand(BazCommand),
+    BarCommand(BarCommand),
+}
 
 test_cli_success!(it_works_with_foo, MyCli, FooCommand, &["foo"], |_| {
 });

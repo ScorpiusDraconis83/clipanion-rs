@@ -2,20 +2,22 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::punctuated::Punctuated;
+use syn::DeriveInput;
 
-use crate::shared;
+pub fn cli_exec_sync_macro(_args: TokenStream, mut input: DeriveInput) -> Result<TokenStream, syn::Error> {
+    let syn::Data::Enum(enum_input) = &mut input.data else {
+        panic!("Only enums are supported");
+    };
 
-pub fn cli_exec_sync_macro(types: Punctuated<syn::Path, syn::Token![,]>, enum_item: syn::ItemEnum) -> Result<TokenStream, syn::Error> {
-    let (_, enum_ident)
-        = shared::get_cli_enum_names(&enum_item.ident);
+    let enum_ident
+        = &input.ident;
 
     let mut match_arms
         = vec![];
 
-    for (i, ty) in types.iter().enumerate() {
+    for variant in &enum_input.variants {
         let variant_ident
-            = shared::get_command_variant_ident(i, ty);
+            = &variant.ident;
 
         match_arms.push(quote! {
             Self::#variant_ident(command) => command.execute().into(),
@@ -23,7 +25,7 @@ pub fn cli_exec_sync_macro(types: Punctuated<syn::Path, syn::Token![,]>, enum_it
     }
 
     let expanded = quote! {
-        #enum_item
+        #input
 
         impl ::clipanion::details::CommandExecutor for #enum_ident {
             fn execute(self, env: &::clipanion::advanced::Environment) -> ::clipanion::details::CommandResult {

@@ -5,6 +5,7 @@ pub use clipanion_derive as derive;
 
 pub mod cli {
     pub use clipanion_derive::command;
+    pub use clipanion_derive::program;
 }
 
 pub mod advanced;
@@ -19,108 +20,6 @@ pub use clipanion_core::{
     CommandError,
     Error,
 };
-
-#[macro_export]
-macro_rules! program_enum {
-    ($name:ident, [$($command:ty),* $(,)?]) => {
-        #[clipanion::derive::cli_enum($($command),*)]
-        #[clipanion::derive::cli_exec_sync($($command),*)]
-        enum $name {}
-    };
-
-    ($name:ident, [$($command:ty),* $(,)?], async) => {
-        #[clipanion::derive::cli_enum($($command),*)]
-        #[clipanion::derive::cli_exec_async($($command),*)]
-        enum $name {}
-    };
-}
-
-#[macro_export]
-macro_rules! program_provider {
-    ($name:ident, [$($command:ty),* $(,)?]) => {
-        impl $crate::details::CommandProvider for $name {
-            type Command = $name;
-
-            fn command_usage(command_index: usize, opts: $crate::core::CommandUsageOptions) -> Result<$crate::core::CommandUsageResult, $crate::core::BuildError> {
-                use $crate::details::CommandController;
-
-                const FNS: &[fn($crate::core::CommandUsageOptions) -> Result<$crate::core::CommandUsageResult, $crate::core::BuildError>] = &[
-                    $(<$command>::command_usage),*
-                ];
-
-                FNS[command_index](opts)
-            }
-
-            fn registered_commands() -> Result<Vec<&'static $crate::core::CommandSpec>, $crate::core::BuildError> {
-                use $crate::details::CommandController;
-
-                Ok(vec![
-                    $(<$command>::command_spec()?),*
-                ])
-            }
-
-            fn parse_args<'args>(builder: &$crate::core::CliBuilder<'static>, environment: &'args $crate::advanced::Environment) -> Result<$crate::core::SelectionResult<'static, 'args, <$name as $crate::details::CliEnums>::PartialEnum>, $crate::core::Error<'args>> where $name: $crate::details::CliEnums {
-                let argv
-                    = environment.argv.iter()
-                        .map(|s| s.as_str())
-                        .collect::<Vec<_>>();
-
-                let mut selector
-                    = builder.run(&argv)?;
-
-                const FNS: &[fn(&$crate::advanced::Environment, &$crate::core::State<'_>) -> Result<<$name as ::clipanion::details::CliEnums>::PartialEnum, $crate::core::CommandError>] = &[
-                    $(|environment, state| {
-                        use $crate::details::CommandController;
-
-                        let partial
-                            = <$command>::hydrate_from_state(environment, state)?;
-
-                        Ok(partial.into())
-                    }),*
-                ];
-
-                selector.resolve_state(|state| {
-                    let command
-                        = FNS[state.context_id](environment, state)?;
-
-                    Ok(command.into())
-                })
-            }
-
-            fn build_cli() -> Result<$crate::core::CliBuilder<'static>, $crate::core::BuildError> {
-                use $crate::details::CommandController;
-
-                let mut builder
-                    = $crate::core::CliBuilder::new();
-
-                $(builder.add_command(<$command>::command_spec()?);)*
-
-                if std::env::var("CLIPANION_DEBUG").is_ok() {
-                    println!("========== CLI State Machine ==========");
-                    println!("{:?}", builder.compile());
-                }
-
-                Ok(builder)
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! program {
-    ($name:ident, [$($command:ty),* $(,)?]) => {
-        $crate::program_enum!($name, [$($command),*]);
-        $crate::program_provider!($name, [$($command),*]);
-    };
-}
-
-#[macro_export]
-macro_rules! program_async {
-    ($name:ident, [$($command:ty),* $(,)?]) => {
-        $crate::program_enum!($name, [$($command),*], async);
-        $crate::program_provider!($name, [$($command),*]);
-    };
-}
 
 #[macro_export]
 macro_rules! test_cli_success {

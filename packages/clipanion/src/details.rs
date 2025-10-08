@@ -112,8 +112,8 @@ pub trait CliEnums {
 }
 
 /**
- * Internal traits implemented by the `program!` and `program_async!` macros. Used
- * to statically aggregate multiple commands together in a single `Cli` type.
+ * Internal traits implemented by the `cli::program` macro. Used to
+ * statically aggregate multiple commands together in a single `Cli` type.
  */
 pub trait CommandProvider {
     type Command;

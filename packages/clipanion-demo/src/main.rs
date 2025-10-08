@@ -1,203 +1,92 @@
-use std::{ops::Deref, process::ExitCode, str::FromStr};
+use std::process::ExitCode;
 
 use clipanion::prelude::*;
 
-#[derive(Debug, thiserror::Error)]
-enum Error {
-    #[error("Oh no! Something bad happened!")]
-    ArbitraryError,
-}
-
-#[derive(Debug)]
-struct HexColor {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-}
-
-impl FromStr for HexColor {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() != 7 || !s.starts_with('#') {
-            return Err(Error::ArbitraryError);
-        }
-
-        let r = u8::from_str_radix(&s[1..3], 16).map_err(|_| Error::ArbitraryError)?;
-        let g = u8::from_str_radix(&s[3..5], 16).map_err(|_| Error::ArbitraryError)?;
-        let b = u8::from_str_radix(&s[5..7], 16).map_err(|_| Error::ArbitraryError)?;
-
-        Ok(HexColor { r, g, b })
-    }
-}
-
-#[derive(Debug)]
+/// Add file contents to the index.
 #[cli::command]
-#[cli::path("cp")]
-#[cli::description("Copy files and directories")]
-struct Cp {
-    #[cli::option("-r,--recursive", description = "Copy directories recursively", default = false)]
-    recursive: bool,
+#[cli::path("add")]
+#[cli::example(command = "git add", description = "Add all files to the index.")]
+struct GitAddCommand {
+    /// Be verbose.
+    #[cli::option("-v,--verbose", default = false)]
+    verbose: bool,
 
-    sources: Vec<String>,
-    destination: String,
+    /// Don’t actually add the file(s), just show if they exist and/or will be ignored.
+    #[cli::option("-d,--dry-run", default = false)]
+    dry_run: bool,
+
+    /// Allow adding otherwise ignored files.
+    #[cli::option("-f,--force", default = false)]
+    force: bool,
+
+    /// Allow updating index entries outside of the sparse-checkout cone.
+    #[cli::option("--sparse", default = false)]
+    sparse: bool,
+
+    /// Files to add content from.
+    paths: Vec<String>,
 }
 
-impl Cp {
-    pub fn execute(&self) {
-        println!("{:?}", self);
-    }
-}
-
-#[derive(Debug)]
-#[cli::command]
-#[cli::path("grep")]
-struct Grep {
-    #[cli::option("--color")]
-    color: Option<HexColor>,
-}
-
-impl Grep {
-    pub fn execute(&self) {
-        println!("{:?}", self);
-    }
-}
-
-#[derive(Debug)]
-#[cli::command]
-#[cli::path("ssh")]
-#[cli::description("Connect to a host")]
-struct Ssh {
-    #[cli::option("-p,--port", description = "Port to connect to", default = 22)]
-    port: u16,
-
-    #[cli::option("--user", description = "User to connect as", default = "root".to_string())]
-    user: String,
-
-    #[cli::positional(description = "Host to connect to")]
-    host: String,
-}
-
-impl Ssh {
-    pub fn execute(&self) {
-        println!("{:?}", self);
+impl GitAddCommand {
+    async fn execute(&self) {
     }
 }
 
 #[cli::command]
-#[cli::path("unimplemented")]
-struct Unimplemented {}
+#[cli::path("commit")]
+#[cli::description("Record changes to the repository.")]
+struct GitCommitCommand {
+    #[cli::option("-a,--all", default = false, description = "Automatically stage files that have been modified and deleted.")]
+    all: bool,
 
-impl Unimplemented {
-    pub fn execute(&self) -> anyhow::Result<()> {
-        Err(Error::ArbitraryError)?
+    #[cli::option("--allow-empty", default = false, description = "Allow empty commits.")]
+    allow_empty: bool,
+
+    #[cli::option("--amend", default = false, description = "Replace the tip of the current branch by creating a new commit.")]
+    amend: bool,
+
+    #[cli::option("-m,--message", description = "Use the given message as the commit message.")]
+    message: Option<String>,
+
+    #[cli::positional(description = "Commit the contents of the files that match the pathspec without recording the changes already added to the index.")]
+    paths: Vec<String>,
+}
+
+impl GitCommitCommand {
+    async fn execute(&self) {
     }
 }
 
-#[derive(Debug)]
 #[cli::command]
-#[cli::path("yarn")]
-#[cli::path("yarn", "install")]
-struct YarnInstall {
+#[cli::path("rm")]
+#[cli::description("Remove files from the working tree and from the index.")]
+struct GitRmCommand {
+    #[cli::option("-f,--force", default = false, description = "Override the up-to-date check.")]
+    force: bool,
+
+    #[cli::option("--cached", default = false, description = "Unstage and remove paths only from the index.")]
+    cached: bool,
+
+    #[cli::option("-n,--dry-run", default = false, description = "Don’t actually remove the file(s), just show if they exist and/or will be ignored.")]
+    dry_run: bool,
+
+    #[cli::positional(description = "Files to remove.")]
+    paths: Vec<String>,
 }
 
-impl YarnInstall {
-    pub fn execute(&self) {
-        println!("{:?}", self);
+impl GitRmCommand {
+    async fn execute(&self) {
     }
 }
 
-#[derive(Debug)]
-#[cli::command(proxy)]
-#[cli::path("yarn", "run")]
-struct YarnRun {
-    script: String,
-    args: Vec<String>,
+#[cli::program(async)]
+enum MyCli {
+    GitAdd(GitAddCommand),
+    GitCommit(GitCommitCommand),
+    GitRm(GitRmCommand),
 }
-
-impl YarnRun {
-    pub fn execute(&self) {
-        println!("{:?}", self);
-    }
-}
-
-#[cli::command(proxy)]
-#[cli::path("yarn")]
-struct YarnRunDefault {
-    script: String,
-    args: Vec<String>,
-}
-
-impl YarnRunDefault {
-    pub fn execute(&self) -> ExitCode {
-        let mut argv = vec!["yarn".to_string(), "run".to_string(), self.script.clone()];
-        argv.extend(self.args.clone());
-
-        MyCli::run(self.cli_environment.clone().with_argv(argv))
-    }
-}
-
-#[cli::command(proxy)]
-#[cli::path("colorlist")]
-struct ColorList {
-    #[cli::option("--color", description = "Color to list", default = vec![])]
-    color_options: Vec<HexColor>,
-
-    colors: Vec<HexColor>,
-}
-
-impl ColorList {
-    pub fn execute(&self) {
-        println!("{:?}", self.colors);
-    }
-}
-
-clipanion::program!(MyCli, [
-    ColorList,
-    Cp,
-    Grep,
-    Ssh,
-    Unimplemented,
-    YarnInstall,
-    YarnRun,
-    YarnRunDefault,
-]);
 
 #[tokio::main()]
 async fn main() -> ExitCode {
-    MyCli::run_default()
-}
-
-#[test]
-fn it_should_support_program() {
-    #[cli::command(default)]
-    struct MyCommandSync {}
-
-    impl MyCommandSync {
-        fn execute(&self) -> () {
-        }
-    }
-
-    clipanion::program!(MyCliSync, [
-        MyCommandSync,
-    ]);
-
-    MyCliSync::run_default();
-}
-
-#[tokio::test]
-async fn it_should_support_program_async() {
-    #[cli::command(default)]
-    struct MyCommandAsync {}
-
-    impl MyCommandAsync {
-        async fn execute(&self) -> () {
-        }
-    }
-
-    clipanion::program_async!(MyCliAsync, [
-        MyCommandAsync,
-    ]);
-
-    MyCliAsync::run_default().await;
+    MyCli::run_default().await
 }

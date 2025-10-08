@@ -1,4 +1,5 @@
 {
+  "name": "@clipanion/monorepo",
   "type": "module",
   "packageManager": "yarn@4.10.3",
   "workspaces": [

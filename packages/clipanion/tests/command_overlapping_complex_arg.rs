@@ -52,7 +52,11 @@ impl BarCommand {
     }
 }
 
-program!(MyCli, [FooCommand, BarCommand]);
+#[cli::program]
+enum MyCli {
+    FooCommand(FooCommand),
+    BarCommand(BarCommand),
+}
 
 test_cli_success!(it_works_with_foo, MyCli, FooCommand, &["foo"], |command| {
     assert_eq!(command.foo, Foo);

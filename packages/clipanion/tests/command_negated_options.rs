@@ -20,7 +20,10 @@ impl MyCommand {
     }
 }
 
-program!(MyCli, [MyCommand]);
+#[cli::program]
+enum MyCli {
+    MyCommand(MyCommand),
+}
 
 test_cli_success!(it_supports_negated_options, MyCli, MyCommand, &["--no-my-option"], |command| {
     assert_eq!(command.value_default_false, false);

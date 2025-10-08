@@ -11,7 +11,10 @@ impl MyCommand {
     }
 }
 
-program!(MyCli, [MyCommand]);
+#[cli::program]
+enum MyCli {
+    MyCommand(MyCommand),
+}
 
 test_cli_success!(it_works, MyCli, MyCommand, &["--my-option", "foo", "bar"], |command| {
     assert_eq!(command.my_option, Some(("foo".to_string(), "bar".to_string())));

@@ -1,13 +1,13 @@
 {
-  "name": "@clipanion/tools",
-  "type": "module",
-  "exports": {
-    ".": {
-      "default": "./index.ts"
-    }
+  "name": "@clipanion/astro",
+  "dependencies": {
+    "@clipanion/tools": "workspace:^"
+  },
+  "peerDependencies": {
+    "astro": "*"
   },
   "devDependencies": {
-    "@types/node": "^24.6.2"
+    "astro": "^5.14.1"
   },
   "publishConfig": {
     "type": "commonjs",

@@ -10,7 +10,10 @@ impl MyCommand {
     }
 }
 
-program!(MyCli, [MyCommand]);
+#[cli::program]
+enum MyCli {
+    MyCommand(MyCommand),
+}
 
 test_cli_success!(it_works_at_the_start_of_the_command_line, MyCli, MyCommand, &["--", "foo", "bar", "--test"], |command| {
     assert_eq!(command.rest, vec!["foo", "bar", "--test"]);
