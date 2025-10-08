@@ -17,5 +17,5 @@ pub use errors::*;
 pub use machine::Machine;
 pub use runner::*;
 pub use selector::*;
-pub use shared::HELP_COMMAND_INDEX;
+pub use shared::{HELP_COMMAND_INDEX, UserArg};
 pub use usage::*;

@@ -2,7 +2,7 @@ use std::{fmt::Display, iter::once, ops::Range};
 
 use itertools::Itertools;
 
-use crate::{machine, runner::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, ArgKey, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageResult, Error, Selector};
+use crate::{machine, runner::{self, DeriveState, RunnerState, ValidateTransition}, shared::{Arg, ArgKey, UserArg, ERROR_NODE_ID, INITIAL_NODE_ID, SUCCESS_NODE_ID}, CommandUsageResult, Error, Selector};
 
 #[cfg(test)]
 use crate::SelectionResult;
@@ -75,8 +75,8 @@ pub struct State<'args> {
     pub node_id: usize,
     pub keyword_count: usize,
     pub path: Vec<&'args str>,
-    pub positional_values: Vec<(usize, Vec<&'args str>)>,
-    pub option_values: Vec<(usize, Vec<&'args str>)>,
+    pub positional_values: Vec<(usize, Vec<UserArg<'args>>)>,
+    pub option_values: Vec<(usize, Vec<UserArg<'args>>)>,
     pub post_double_dash: bool,
     pub is_help: bool,
 
@@ -90,13 +90,7 @@ impl<'args> State<'args> {
             .into_iter()
             .chain(self.option_values.clone().into_iter())
             .sorted_by_key(|(id, _)| *id)
-            .collect()
-    }
-
-    pub fn values_owned(self) -> Vec<(usize, Vec<String>)> {
-        self.values()
-            .into_iter()
-            .map(|(id, values)| (id, values.into_iter().map(|s| s.to_string()).collect()))
+            .map(|(id, values)| (id, values.iter().map(|s| s.value).collect()))
             .collect()
     }
 }
@@ -182,10 +176,10 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
                 state.is_help = true;
 
                 #[cfg(feature = "tokens")]
-                if let Arg::User(arg_raw, arg_index) = token {
+                if let Arg::User(user_arg) = token {
                     state.tokens.push(Token::Syntax {
-                        arg_index,
-                        slice: 0..arg_raw.len(),
+                        arg_index: user_arg.index,
+                        slice: 0..user_arg.value.len(),
                     });
                 }
             },
@@ -194,10 +188,10 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
                 state.post_double_dash = true;
 
                 #[cfg(feature = "tokens")]
-                if let Arg::User(arg_raw, arg_index) = token {
+                if let Arg::User(user_arg) = token {
                     state.tokens.push(Token::Syntax {
-                        arg_index,
-                        slice: 0..arg_raw.len(),
+                        arg_index: user_arg.index,
+                        slice: 0..user_arg.value.len(),
                     });
                 }
             },
@@ -206,10 +200,10 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
                 state.keyword_count += 1;
 
                 #[cfg(feature = "tokens")]
-                if let Arg::User(arg_raw, arg_index) = token {
+                if let Arg::User(user_arg) = token {
                     state.tokens.push(Token::Keyword {
-                        arg_index,
-                        slice: 0..arg_raw.len(),
+                        arg_index: user_arg.index,
+                        slice: 0..user_arg.value.len(),
                     });
                 }
             },
@@ -219,30 +213,30 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
                     Attachment::Option => {
                         state.option_values.push((*attachment_id, vec![]));
 
-                        let Arg::User(arg_raw, arg_index) = token else {
+                        let Arg::User(user_arg) = token else {
                             panic!("Expected user argument");
                         };
 
                         #[cfg(feature = "tokens")] {
                             state.tokens.push(Token::Option {
-                                arg_index,
-                                slice: 0..arg_raw.len(),
+                                arg_index: user_arg.index,
+                                slice: 0..user_arg.value.len(),
                                 component_id: *attachment_id,
                             });
                         }
                     },
 
                     Attachment::Positional => {
-                        let Arg::User(arg_raw, arg_index) = token else {
+                        let Arg::User(user_arg) = token else {
                             panic!("Expected user argument");
                         };
 
-                        state.positional_values.push((*attachment_id, vec![arg_raw]));
+                        state.positional_values.push((*attachment_id, vec![user_arg]));
 
                         #[cfg(feature = "tokens")] {
                             state.tokens.push(Token::Positional {
-                                arg_index,
-                                slice: 0..arg_raw.len(),
+                                arg_index: user_arg.index,
+                                slice: 0..user_arg.value.len(),
                                 component_id: *attachment_id,
                             });
                         }
@@ -257,16 +251,16 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
                             panic!("No option value found");
                         };
 
-                        let Arg::User(arg_raw, arg_index) = token else {
+                        let Arg::User(user_arg) = token else {
                             panic!("Expected user argument");
                         };
 
-                        values.push(arg_raw);
+                        values.push(user_arg);
 
                         #[cfg(feature = "tokens")] {
                             state.tokens.push(Token::Value {
-                                arg_index,
-                                slice: 0..arg_raw.len(),
+                                arg_index: user_arg.index,
+                                slice: 0..user_arg.value.len(),
                                 component_id: *attachment_id,
                             });
                         }
@@ -277,16 +271,16 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
                             panic!("No positional value found");
                         };
 
-                        let Arg::User(arg_raw, arg_index) = token else {
+                        let Arg::User(user_arg) = token else {
                             panic!("Expected user argument");
                         };
 
-                        values.push(arg_raw);
+                        values.push(user_arg);
 
                         #[cfg(feature = "tokens")] {
                             state.tokens.push(Token::Positional {
-                                arg_index,
-                                slice: 0..arg_raw.len(),
+                                arg_index: user_arg.index,
+                                slice: 0..user_arg.value.len(),
                                 component_id: *attachment_id,
                             });
                         }
@@ -295,39 +289,42 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
             },
 
             Reducer::BindValue(skip_len, option_id) => {
-                let Arg::User(arg_raw, arg_index) = token else {
+                let Arg::User(user_arg) = token else {
                     panic!("Expected user argument");
                 };
 
-                state.option_values.push((*option_id, vec![&arg_raw[*skip_len + 1..]]));
+                state.option_values.push((*option_id, vec![UserArg {
+                    value: &user_arg.value[*skip_len + 1..],
+                    index: user_arg.index,
+                }]));
 
                 #[cfg(feature = "tokens")] {
                     state.tokens.push(Token::Option {
-                        arg_index,
+                        arg_index: user_arg.index,
                         slice: 0..*skip_len,
                         component_id: *option_id,
                     });
 
                     state.tokens.push(Token::Assign {
-                        arg_index,
+                        arg_index: user_arg.index,
                         slice: *skip_len..*skip_len + 1,
                         component_id: *option_id,
                     });
 
                     state.tokens.push(Token::Value {
-                        arg_index,
-                        slice: *skip_len + 1..arg_raw.len(),
+                        arg_index: user_arg.index,
+                        slice: *skip_len + 1..user_arg.value.len(),
                         component_id: *option_id,
                     });
                 }
             },
 
             Reducer::ResolveBatch(batch) => {
-                let Arg::User(arg_raw, arg_index) = token else {
+                let Arg::User(user_arg) = token else {
                     panic!("Expected user argument");
                 };
 
-                for (batch_index, c) in arg_raw.chars().enumerate().skip(1) {
+                for (batch_index, c) in user_arg.value.chars().enumerate().skip(1) {
                     let Some((_, option_id)) = batch.iter().find(|(other_c, _)| c == *other_c) else {
                         continue;
                     };
@@ -336,7 +333,7 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
 
                     #[cfg(feature = "tokens")] {
                         state.tokens.push(Token::Option {
-                            arg_index,
+                            arg_index: user_arg.index,
                             slice: if batch_index == 0 {0..2} else {batch_index..batch_index + 1},
                             component_id: *option_id,
                         });
@@ -386,7 +383,7 @@ fn format_range(f: &mut std::fmt::Formatter<'_>, name: &str, min_len: usize, ext
 
     if extra_len != Some(0) {
         if let Some(extra_len) = extra_len {
-            write!(f, "{}[…{}{}]", spacing, name, extra_len)?;
+            write!(f, "{}[…{} {}-{}]", spacing, name, min_len, extra_len)?;
         } else {
             write!(f, "{}[…{}N]", spacing, name)?;
         }

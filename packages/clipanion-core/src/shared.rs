@@ -1,8 +1,15 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "tokens", derive(serde::Serialize))]
+pub struct UserArg<'a> {
+    pub value: &'a str,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "tokens", derive(serde::Serialize))]
 pub enum Arg<'a> {
     StartOfInput,
-    User(&'a str, usize),
+    User(UserArg<'a>),
     EndOfInput,
     EndOfPartialInput,
 }
@@ -19,7 +26,7 @@ impl<'a> From<Arg<'a>> for ArgKey<'a> {
     fn from(arg: Arg<'a>) -> Self {
         match arg {
             Arg::StartOfInput => ArgKey::StartOfInput,
-            Arg::User(s, _) => ArgKey::User(s),
+            Arg::User(UserArg {value, ..}) => ArgKey::User(value),
             Arg::EndOfInput => ArgKey::EndOfInput,
             Arg::EndOfPartialInput => ArgKey::EndOfPartialInput,
         }

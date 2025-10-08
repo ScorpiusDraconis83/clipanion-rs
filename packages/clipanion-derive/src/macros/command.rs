@@ -216,7 +216,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     for field in 0..item_count {
                         tuple_fields.push(quote! {
                             args.get(#field).map(|s| -> Result<_, clipanion::core::CommandError> {
-                                s.parse().map_err(clipanion::details::handle_parse_error)
+                                s.value.parse().map_err(clipanion::details::handle_parse_error)
                             }).transpose()?.unwrap()
                         });
                     }
@@ -228,7 +228,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     }
                 } else {
                     quote! {args.iter().map(|s| -> Result<_, clipanion::core::CommandError> {
-                        s.parse().map_err(clipanion::details::handle_parse_error)
+                        s.value.parse().map_err(clipanion::details::handle_parse_error)
                     }).collect::<Result<Vec<_>, _>>()?}
                 }
             } else if is_bool {
@@ -240,7 +240,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 for field in 0..item_count {
                     tuple_fields.push(quote! {
                         args.get(#field).map(|s| -> Result<_, clipanion::core::CommandError> {
-                            s.parse().map_err(clipanion::details::handle_parse_error)
+                            s.value.parse().map_err(clipanion::details::handle_parse_error)
                         }).transpose()?.unwrap()
                     });
                 }
@@ -248,7 +248,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 quote! {Some((#(#tuple_fields),*))}
             } else {
                 quote! {args.first().map(|s| -> Result<_, clipanion::core::CommandError> {
-                    s.parse().map_err(clipanion::details::handle_parse_error)
+                    s.value.parse().map_err(clipanion::details::handle_parse_error)
                 }).transpose()?}
             };
 
@@ -407,7 +407,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
                 hydraters.push(quote! {
                     let value = args.iter()
-                        .map(|arg| arg.parse().map_err(clipanion::details::handle_parse_error))
+                        .map(|arg| arg.value.parse().map_err(clipanion::details::handle_parse_error))
                         .collect::<Result<Vec<_>, _>>()?;
 
                     partial.#field_ident = value;
@@ -440,7 +440,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     hydraters.push(quote! {
                         let positional = args.first().unwrap();
 
-                        let value = positional.parse()
+                        let value = positional.value.parse()
                             .map_err(clipanion::details::handle_parse_error)?;
 
                         partial.#field_ident = Some(Some(value));
@@ -453,7 +453,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     hydraters.push(quote! {
                         let positional = args.first().unwrap();
 
-                        let value = positional.parse()
+                        let value = positional.value.parse()
                             .map_err(clipanion::details::handle_parse_error)?;
 
                         partial.#field_ident = Some(value);
@@ -558,7 +558,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 let mut partial
                     = Self::Partial::new(environment, state.path.iter().map(|s| s.to_string()).collect());
 
-                let FNS: &[fn(&mut Self::Partial, &[&str]) -> Result<(), clipanion::core::CommandError>] = &[
+                let FNS: &[fn(&mut Self::Partial, &Vec<clipanion::core::UserArg<'_>>) -> Result<(), clipanion::core::CommandError>] = &[
                     #(|partial, args| {
                         #hydraters
                         Ok(())

@@ -1,4 +1,4 @@
-use clipanion::{prelude::*, program, test_cli_failure, test_cli_success, Error};
+use clipanion::{prelude::*, test_cli_failure, test_cli_success, Error};
 
 #[cli::command]
 #[cli::path("foo", "bar")]

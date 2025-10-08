@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::{shared::{Arg, ERROR_NODE_ID, INITIAL_NODE_ID}, transition::Transition, Machine};
+use crate::{shared::{Arg, UserArg, ERROR_NODE_ID, INITIAL_NODE_ID}, transition::Transition, Machine};
 
 pub trait RunnerState {
     fn get_context_id(&self) -> usize;
@@ -149,7 +149,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
         }
 
         for (arg_index, arg) in args.iter().enumerate() {
-            self.update(Arg::User(arg, arg_index));
+            self.update(Arg::User(UserArg { value: arg, index: arg_index }));
         }
     }
 
@@ -229,7 +229,7 @@ impl<'machine, 'cmds, TCheck, TReducer, TFallback, TState> Runner<'machine, 'cmd
                 }
             }
 
-            if let Arg::User(raw, _) = &token {
+            if let Arg::User(UserArg { value: raw, .. }) = &token {
                 for (check, transition) in &current_node.dynamics {
                     if check.check(&state, raw) {
                         self.transition_to(&state, transition, token);

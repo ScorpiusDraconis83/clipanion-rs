@@ -47,7 +47,7 @@ fn gen_random_values<R: Rng>(rng: &mut R, min_len: usize, extra_len: Option<usiz
     values
 }
 
-fn gen_random_positional_spec<R: Rng>(rng: &mut R) -> PositionalSpec {
+fn gen_random_positional_spec<R: Rng>(rng: &mut R, use_optional_positionals: bool) -> PositionalSpec {
     match rng.random_range(0..=1) {
         0 => PositionalSpec::Keyword {
             expected: gen_random_keyword(rng),
@@ -57,7 +57,10 @@ fn gen_random_positional_spec<R: Rng>(rng: &mut R) -> PositionalSpec {
             name: "positional".to_string(),
             description: None,
             min_len: rng.random_range(0..3),
-            extra_len: gen_optional(rng, |rng| rng.random_range(0..3)),
+            extra_len: match use_optional_positionals {
+                true => gen_optional(rng, |rng| rng.random_range(0..3)),
+                false => Some(0),
+            },
             is_prefix: false,
             is_proxy: false,
         },
@@ -66,27 +69,43 @@ fn gen_random_positional_spec<R: Rng>(rng: &mut R) -> PositionalSpec {
     }
 }
 
-fn gen_random_option_spec<R: Rng>(rng: &mut R) -> OptionSpec {
+fn gen_random_option_spec<R: Rng>(rng: &mut R, use_optional_positionals: bool) -> OptionSpec {
     OptionSpec {
         primary_name: gen_random_option_name(rng),
         aliases: vec![],
         description: None,
         min_len: rng.random_range(0..3),
-        extra_len: gen_optional(rng, |rng| rng.random_range(0..3)),
         allow_binding: rng.random_bool(0.5),
-        allow_boolean: rng.random_bool(0.5),
         is_hidden: false,
         is_required: rng.random_bool(0.5),
+
+        // We can't use optional values for options when the command has optional positionals,
+        // as it becomes ambiguous. For example, let's say we have this:
+        //
+        //   my-cmd [foo] [...foo] [--opt <val> [...val]]
+        //
+        // How should we parse `my-cmd hello --opt world`? What about `my-cmd --opt hello world`? And
+        // it's the same thing with allow_boolean.
+
+        extra_len: match use_optional_positionals {
+            true => Some(0),
+            false => gen_optional(rng, |rng| rng.random_range(0..3)),
+        },
+
+        allow_boolean: match use_optional_positionals {
+            true => false,
+            false => rng.random_bool(0.5),
+        },
     }
 }
 
-fn gen_random_command_spec<R: Rng>(rng: &mut R) -> CommandSpec {
+fn gen_random_command_spec<R: Rng>(rng: &mut R, use_optional_positionals: bool) -> CommandSpec {
     let mut components = vec![];
 
     for _ in 0..rng.random_range(0..10) {
         components.push(match rng.random_range(0..=1) {
-            0 => Component::Positional(gen_random_positional_spec(rng)),
-            1 => Component::Option(gen_random_option_spec(rng)),
+            0 => Component::Positional(gen_random_positional_spec(rng, use_optional_positionals)),
+            1 => Component::Option(gen_random_option_spec(rng, use_optional_positionals)),
             _ => unreachable!(),
         });
     }
@@ -191,7 +210,7 @@ fn gen_random_command_line<R: Rng>(rng: &mut R, command_spec: &CommandSpec, comm
                         }
                     },
                 }
-            }
+            },
 
             Component::Option(option_spec) => {
                 let mut force_trailing
@@ -203,25 +222,32 @@ fn gen_random_command_line<R: Rng>(rng: &mut R, command_spec: &CommandSpec, comm
                         .collect::<Vec<_>>();
         
                 for (_, values) in indexed_command_values.entry(i).or_default() {
-                    let current_extra_len
-                        = values.len() - option_spec.min_len;
-
                     let name
                         = all_names[rng.random_range(0..all_names.len())];
         
                     let mut args
                         = vec![name.to_string()];
 
-                    args.extend(values.iter().cloned());
-
-                    if !force_trailing && option_spec.extra_len == Some(current_extra_len) {
-                        interlaced_options.push(args);
-                    } else {
-                        trailing_options.push(args);
+                    if values.len() == 0 && option_spec.allow_boolean && (option_spec.min_len > 0 || option_spec.extra_len != Some(0)) {
                         force_trailing = true;
+                    } else {
+                        let current_extra_len
+                            = values.len() - option_spec.min_len;
+
+                        args.extend(values.iter().cloned());
+
+                        if option_spec.extra_len != Some(0) || current_extra_len > 0 {
+                            force_trailing = true;
+                        }
+                    }
+
+                    if force_trailing {
+                        trailing_options.push(args);
+                    } else {
+                        interlaced_options.push(args);
                     }
                 }
-            }
+            },
         }
     }
 
@@ -253,8 +279,11 @@ fn test_gen_random_command_line() {
         .map(|s| s.split("/").map(|s| s.parse::<usize>().unwrap()).collect::<Vec<_>>());
 
     for n1 in 0..100 {
+        let use_optional_positionals
+            = rng.random_bool(0.5);
+
         let command_spec
-            = gen_random_command_spec(&mut rng);
+            = gen_random_command_spec(&mut rng, use_optional_positionals);
 
         for n2 in 0..100 {
             let command_values
@@ -298,14 +327,21 @@ fn test_gen_random_command_line() {
                             .map(|(i, values)| (*i, values.iter().map(|s| s.as_str()).collect::<Vec<_>>()))
                             .collect::<Vec<_>>();
 
+                    // println!();
+                    // println!("==========");
+                    // println!();
+                    // println!("{}", command_spec);
+                    // println!();
+                    // println!("{:?}", command_values);
+                    // println!();
+                    // println!("{:?}", command_line);
+                    // println!();
+                    // println!("{:?}", state.values());
+
                     assert_eq!(state.values(), command_values_str);
                 });
 
                 if let Err(err) = result {
-                    println!("{}", command_spec);
-                    println!("{:?}", command_values);
-                    println!("{:?}", command_line);
-
                     println!("{} / {} / {}", n1, n2, n3);
                     std::panic::resume_unwind(err);
                 }

@@ -1,4 +1,4 @@
-use clipanion::{prelude::*, program, test_cli_success};
+use clipanion::{prelude::*, test_cli_success};
 
 #[cli::command(default)]
 struct MyCommand {}

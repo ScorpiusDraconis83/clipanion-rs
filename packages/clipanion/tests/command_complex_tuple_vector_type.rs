@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use clipanion::{prelude::*, program, test_cli_failure, test_cli_success, CommandError, Error};
+use clipanion::{prelude::*, test_cli_failure, test_cli_success, CommandError, Error};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Size {

@@ -45,6 +45,8 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
 
     fn fail_missing_required_options<'a>(&mut self) -> Result<(), Error<'cmds>> {
         let mut has_valid_states
+            = false;
+        let mut has_otherwise_valid_states
             = None;
 
         for &id in self.candidates.iter() {
@@ -64,18 +66,22 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
                     .map(|option_id| self.commands[state.context_id].components[*option_id].is_option().unwrap().primary_name.as_str())
                     .collect::<Vec<_>>();
 
-            if missing_required_options.len() > 0 {
+            if missing_required_options.len() == 0 {
+                has_valid_states = true;
+            } else {
                 state.node_id = ERROR_NODE_ID;
-                if has_valid_states.is_none() {
-                    has_valid_states = Some(Some((command, missing_required_options)));
-                } else if has_valid_states.is_some() {
-                    has_valid_states = Some(None);
+                if has_otherwise_valid_states.is_none() {
+                    has_otherwise_valid_states = Some(Some((command, missing_required_options)));
+                } else if has_otherwise_valid_states.is_some() {
+                    has_otherwise_valid_states = Some(None);
                 }
             }
         }
 
-        if let Some(Some((command, missing_required_options))) = has_valid_states {
-            return Err(Error::CommandError(command, CommandError::MissingOptionArguments(missing_required_options.into_iter().map(|option| option.to_string()).collect::<Vec<_>>())));
+        if !has_valid_states {
+            if let Some(Some((command, missing_required_options))) = has_otherwise_valid_states {
+                return Err(Error::CommandError(command, CommandError::MissingOptionArguments(missing_required_options.into_iter().map(|option| option.to_string()).collect::<Vec<_>>())));
+            }
         }
 
         Ok(())
@@ -135,10 +141,57 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
 
         // First we convert the positional values into a list of sort
         // criteria: first by positional index, then by number of values
-        // provided to the positional argument.
+        // provided to the positional argument, and finally by the argument
+        // indexes.
         //
-        // - vec![(0, 1), (1, 2)] // for the first option
-        // - vec![(1, 3)] // for the second option
+        // Let's say we have the following command:
+        //
+        // ```
+        // my-cmd [...rest1] [...rest2]
+        // ```
+        // 
+        // We want `my-cmd foo bar baz` to be parsed as:
+        //
+        // ```
+        // rest1 = vec!["foo", "bar", "baz"]
+        // rest2 = vec![]
+        // ```
+        //
+        // And not (which we could have if we didn't favour states with more positionals of low indexes):
+        //
+        // ```
+        // rest1 = vec![]
+        // rest2 = vec!["foo", "bar", "baz"]
+        // ```
+        //
+        // Nor (which we could have if we didn't favour states where positionals of low indexes have more values):
+        //
+        // ```
+        // rest1 = vec!["foo"]
+        // rest2 = vec!["bar", "baz"]
+        // ```
+        //
+        // And, for the following command:
+        //
+        // ```
+        // my-cmd [--opt [...args]] [positional]
+        // ```
+        //
+        // We want `my-cmd --opt foo --opt bar baz` to be parsed as:
+        //
+        // ```
+        // opt = vec![]
+        // positional = "foo" 
+        // opt = vec!["bar", "baz"]
+        // ```
+        //
+        // And not (which we could have if we didn't favour lowest argument indexes, despite the precedent rules):
+        //
+        // ```
+        // opt = vec!["foo"]
+        // opt = vec!["bar"]
+        // positional = "baz" 
+        // ```
         //
         // We have a small problem: we want to first favour the lowest
         // positional indexes (since they signal higher greediness), but
@@ -152,9 +205,24 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
         //
         // Note: it's -x-1 (and not -x) because otherwise 0 would remain 0.
         //
+        #[derive(Debug, PartialEq, Eq)]
+        struct Flip(usize);
+
+        impl PartialOrd for Flip {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                Some(other.0.cmp(&self.0))
+            }
+        }
+
+        impl Ord for Flip {
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                other.0.cmp(&self.0)
+            }
+        }
+
         let mut states_with_positional_tracks = owned_candidates.into_iter().map(|id| {
             let positional_track = self.states[id].positional_values.iter().map(|(idx, values)| {
-                (idx.wrapping_neg().wrapping_sub(1), values.len())
+                (Flip(*idx), values.len(), values.iter().map(|value| Flip(value.index)).collect::<Vec<_>>())
             }).collect::<Vec<_>>();
 
             (id, positional_track)
