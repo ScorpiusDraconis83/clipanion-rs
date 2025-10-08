@@ -4,8 +4,6 @@ use quote::{quote, ToTokens};
 use proc_macro2::TokenStream;
 use syn::{parse::{Parse, ParseStream}, punctuated::Punctuated, Attribute, Expr, ExprLit, Ident, Lit, LitBool, LitStr, Meta, Token};
 
-use crate::shared::expect_lit;
-
 pub fn to_lit_str<T: AsRef<str>>(str: T) -> LitStr {
     LitStr::new(str.as_ref(), proc_macro2::Span::call_site())
 }

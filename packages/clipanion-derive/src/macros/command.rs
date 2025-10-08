@@ -190,14 +190,16 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 .map(|lit| lit.value())
                 .to_option_tokens(|s| quote!{#s.to_string()});
 
-            let preferred_name_lit = option_bag.path
+            let preferred_name = option_bag.path
                 .iter().max_by_key(|name| name.len())
-                .map(to_lit_str)
                 .unwrap();
+
+            let preferred_name_lit
+                = to_lit_str(preferred_name);
 
             let aliases_lit = option_bag.path
                 .iter()
-                .skip(1)
+                .filter(|name| name != &preferred_name)
                 .map(to_lit_str)
                 .collect::<Vec<_>>();
 
