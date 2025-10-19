@@ -1,22 +1,24 @@
 {
-  "name": "@clipanion/expressive-code",
+  "name": "@clipanion/remark",
   "type": "module",
   "exports": {
     ".": {
       "default": "./index.ts"
-    },
-    "./extra": {
-      "default": "./extra.ts"
     }
   },
   "dependencies": {
-    "@clipanion/tools": "workspace:^"
-  },
-  "peerDependencies": {
-    "@expressive-code/core": "*"
+    "@clipanion/tools": "workspace:^",
+    "@types/mdast": "^4.0.4",
+    "@types/unist": "^3.0.3",
+    "@yarnpkg/parsers": "^3.0.3",
+    "style-to-object": "^1.0.11",
+    "unified": "^11.0.5",
+    "unist": "^0.0.1",
+    "unist-util-visit": "^5.0.0"
   },
   "devDependencies": {
-    "@expressive-code/core": "^0.41.3"
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0"
   },
   "publishConfig": {
     "type": "commonjs",
@@ -25,10 +27,6 @@
       ".": {
         "default": "./dist/index.cjs",
         "types": "./dist/index.d.ts"
-      },
-      "./extra": {
-        "default": "./dist/extra.cjs",
-        "types": "./dist/extra.d.ts"
       }
     }
   },

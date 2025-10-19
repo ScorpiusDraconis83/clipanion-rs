@@ -112,7 +112,7 @@ export class ClipanionBinary {
         }
 
         case `option`: {
-          const {start, end} = consumeTokensWhile(args, tokens, t, token => token.type === `assign` || token.type === `value`);
+          const {start, end} = consumeTokensWhile(args, tokens, t, token => token.type === `assign`);
           annotations.push({
             start,
             end,
@@ -149,4 +149,28 @@ export class ClipanionBinary {
 
     return JSON.parse(result.stdout as string) as T;
   }
+}
+
+export async function parseCli<T extends {binary: ClipanionBinary}>(line: string, clis: Record<string, T>) {
+  if (line.startsWith(`#`) || line.length === 0)
+    return null;
+
+  const words = [...line.matchAll(/"[^"]+"|'[^']+'|[^\s]+/g)]
+    .map(match => ({index: match.index, text: match[0]!}));
+
+  if (words.length === 0)
+    return null;
+
+  const cliName = words.shift()!.text;
+  if (!Object.hasOwn(clis, cliName))
+    return null;
+
+  const cli = clis[cliName]!;
+  const args = words.map(word => word.text);
+
+  const query = await cli.binary.describeCommandLine(args);
+  if (!query)
+    return null;
+
+  return {cli, words, query};
 }

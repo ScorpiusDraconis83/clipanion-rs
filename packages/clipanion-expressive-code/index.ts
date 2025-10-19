@@ -1,4 +1,4 @@
-import {ClipanionBinary}                                                                                                                                                  from '@clipanion/tools';
+import {ClipanionBinary, parseCli}                                                                                                                                        from '@clipanion/tools';
 import {type Element, type Parents, h}                                                                                                                                    from '@expressive-code/core/hast';
 import {type AnnotationBaseOptions, type AnnotationRenderOptions, type AnnotationRenderPhase, type ExpressiveCodePlugin, ExpressiveCodeAnnotation, InlineStyleAnnotation} from '@expressive-code/core';
 
@@ -79,29 +79,19 @@ export function clipanionExpressiveCode({clis}: PluginOptions): ExpressiveCodePl
           return;
 
         for (const line of codeBlock.getLines()) {
-          if (line.text.startsWith(`#`) || line.text.length === 0)
-            continue;
-
-          const words = [...line.text.matchAll(/"[^"]+"|'[^']+'|[^\s]+/g)];
-          if (words.length === 0)
-            continue;
-
-          const cliName = words.shift()![0];
-          if (!Object.hasOwn(binaries, cliName))
-            continue;
-
-          const cli = binaries[cliName]!;
-          const args = words.map(word => word[0]);
-
-          const query = await cli.binary.describeCommandLine(args);
-          if (!query)
+          const result = await parseCli(line.text, binaries);
+          if (!result)
             continue;
 
           const {
-            command,
-            tokens,
-            annotations,
-          } = query;
+            cli,
+            words,
+            query: {
+              command,
+              tokens,
+              annotations,
+            },
+          } = result;
 
           for (const annotation of annotations) {
             const inlineRange = {

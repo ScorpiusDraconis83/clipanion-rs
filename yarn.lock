@@ -136,6 +136,7 @@ __metadata:
     "@clipanion/astro": "workspace:^"
     "@clipanion/expressive-code": "workspace:^"
     "@clipanion/monorepo": "workspace:^"
+    "@clipanion/remark": "workspace:^"
     "@expressive-code/core": "npm:^0.41.3"
     "@tailwindcss/vite": "npm:^4.1.14"
     astro: "npm:^5.14.1"
@@ -150,8 +151,6 @@ __metadata:
   dependencies:
     "@clipanion/tools": "workspace:^"
     "@expressive-code/core": "npm:^0.41.3"
-    "@yarnpkg/parsers": "npm:^3.0.3"
-    style-to-object: "npm:^1.0.11"
   peerDependencies:
     "@expressive-code/core": "*"
   languageName: unknown
@@ -167,6 +166,23 @@ __metadata:
     tsup: "npm:^8.5.0"
     typescript: "npm:^5.9.3"
     vitest: "npm:^3.2.4"
+  languageName: unknown
+  linkType: soft
+
+"@clipanion/remark@workspace:^, @clipanion/remark@workspace:packages/clipanion-remark":
+  version: 0.0.0-use.local
+  resolution: "@clipanion/remark@workspace:packages/clipanion-remark"
+  dependencies:
+    "@clipanion/tools": "workspace:^"
+    "@types/mdast": "npm:^4.0.4"
+    "@types/unist": "npm:^3.0.3"
+    "@yarnpkg/parsers": "npm:^3.0.3"
+    remark-parse: "npm:^11.0.0"
+    remark-stringify: "npm:^11.0.0"
+    style-to-object: "npm:^1.0.11"
+    unified: "npm:^11.0.5"
+    unist: "npm:^0.0.1"
+    unist-util-visit: "npm:^5.0.0"
   languageName: unknown
   linkType: soft
 
@@ -1415,7 +1431,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/mdast@npm:^4.0.0":
+"@types/mdast@npm:^4.0.0, @types/mdast@npm:^4.0.4":
   version: 4.0.4
   resolution: "@types/mdast@npm:4.0.4"
   dependencies:
@@ -1449,7 +1465,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/unist@npm:*, @types/unist@npm:^3.0.0":
+"@types/unist@npm:*, @types/unist@npm:^3.0.0, @types/unist@npm:^3.0.3":
   version: 3.0.3
   resolution: "@types/unist@npm:3.0.3"
   checksum: 10c0/2b1e4adcab78388e088fcc3c0ae8700f76619dbcb4741d7d201f87e2cb346bfc29a89003cfea2d76c996e1061452e14fcd737e8b25aacf949c1f2d6b2bc3dd60
@@ -7327,6 +7343,13 @@ __metadata:
     unist-util-is: "npm:^6.0.0"
     unist-util-visit-parents: "npm:^6.0.0"
   checksum: 10c0/51434a1d80252c1540cce6271a90fd1a106dbe624997c09ed8879279667fb0b2d3a685e02e92bf66598dcbe6cdffa7a5f5fb363af8fdf90dda6c855449ae39a5
+  languageName: node
+  linkType: hard
+
+"unist@npm:^0.0.1":
+  version: 0.0.1
+  resolution: "unist@npm:0.0.1"
+  checksum: 10c0/af7ca198dafc336cd8d4808387dc02a5ad0830147a932db750dd0efea3c1c0d08fa08c22025c84423cb065be9796dc235460744a1db964eeeb7560324ea7c6c9
   languageName: node
   linkType: hard
 
