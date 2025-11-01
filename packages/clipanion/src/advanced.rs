@@ -14,7 +14,7 @@ use crate::{details::{CliEnums, CommandExecutor, CommandExecutorAsync, CommandPr
     pub info: Info,
     pub argv: Vec<String>,
  }
- 
+
 impl Environment {
     pub fn with_program_name(mut self, program_name: String) -> Self {
         self.info.program_name = program_name;
@@ -118,6 +118,8 @@ fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuil
 
         BuiltinCommand::Tokenize(command_line) => {
             #[cfg(not(feature = "tokens"))] {
+                println!("Using this command requires the 'tokens' feature to be enabled.");
+
                 return Err(clipanion_core::Error::InternalError);
             }
 
