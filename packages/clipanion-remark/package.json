@@ -2,9 +2,8 @@
   "name": "@clipanion/remark",
   "type": "module",
   "exports": {
-    ".": {
-      "default": "./index.ts"
-    }
+    "./package.json": "./package.json",
+    ".": "./index.ts"
   },
   "dependencies": {
     "@clipanion/tools": "workspace:^",
@@ -21,11 +20,11 @@
     "remark-stringify": "^11.0.0"
   },
   "publishConfig": {
-    "type": "commonjs",
     "exports": {
       "./package.json": "./package.json",
       ".": {
-        "default": "./dist/index.cjs",
+        "default": "./dist/index.js",
+        "require": "./dist/index.cjs",
         "types": "./dist/index.d.ts"
       }
     }

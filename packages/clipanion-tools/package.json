@@ -2,19 +2,17 @@
   "name": "@clipanion/tools",
   "type": "module",
   "exports": {
-    ".": {
-      "default": "./index.ts"
-    }
+    ".": "./index.ts"
   },
   "devDependencies": {
     "@types/node": "^24.6.2"
   },
   "publishConfig": {
-    "type": "commonjs",
     "exports": {
       "./package.json": "./package.json",
       ".": {
-        "default": "./dist/index.cjs",
+        "default": "./dist/index.js",
+        "require": "./dist/index.cjs",
         "types": "./dist/index.d.ts"
       }
     }

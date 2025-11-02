@@ -2,12 +2,9 @@
   "name": "@clipanion/expressive-code",
   "type": "module",
   "exports": {
-    ".": {
-      "default": "./index.ts"
-    },
-    "./extra": {
-      "default": "./extra.ts"
-    }
+    "./package.json": "./package.json",
+    ".": "./index.ts",
+    "./extra": "./extra.ts"
   },
   "dependencies": {
     "@clipanion/tools": "workspace:^"
@@ -19,15 +16,16 @@
     "@expressive-code/core": "^0.41.3"
   },
   "publishConfig": {
-    "type": "commonjs",
     "exports": {
       "./package.json": "./package.json",
       ".": {
-        "default": "./dist/index.cjs",
+        "default": "./dist/index.js",
+        "require": "./dist/index.cjs",
         "types": "./dist/index.d.ts"
       },
       "./extra": {
-        "default": "./dist/extra.cjs",
+        "default": "./dist/extra.js",
+        "require": "./dist/extra.cjs",
         "types": "./dist/extra.d.ts"
       }
     }
