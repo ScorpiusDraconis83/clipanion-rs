@@ -22,4 +22,12 @@ export default defineConfig([{
   splitting: false,
   sourcemap: true,
   clean: true,
+}, {
+  entry: [`packages/clipanion-astro/index.ts`],
+  outDir: `packages/clipanion-astro/dist`,
+  dts: true,
+  splitting: false,
+  sourcemap: true,
+  clean: true,
+  external: [`astro:content`],
 }]);
