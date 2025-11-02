@@ -14,7 +14,7 @@
     "vitest": "^3.2.4"
   },
   "scripts": {
-    "global:build": "tsup",
+    "global:build": "tsdown",
     "gen-types": "cargo test --all-features --lib builder::export_bindings"
   },
   "dependencies": {
