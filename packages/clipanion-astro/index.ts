@@ -1,95 +1,49 @@
-import { ClipanionBinary } from '@clipanion/tools';
+import { ClipanionBinary, CommandSpec } from '@clipanion/tools';
 import type { Loader } from 'astro/loaders';
-import { z } from 'astro/zod';
 
-const exampleType = z.object({
-  command: z.string(),
-  description: z.string().nullable(),
-});
-
-const keywordPositionalType = z.object({
-  positionalType: z.literal(`keyword`),
-  expected: z.string(),
-});
-
-const dynamicPositionalType = z.object({
-  positionalType: z.literal(`dynamic`),
-
-  name: z.string(),
-  description: z.string().nullable(),
-
-  minLen: z.number(),
-  extraLen: z.number().nullable(),
-
-  isPrefix: z.boolean(),
-  isProxy: z.boolean(),
-});
-
-const optionType = z.object({
-  type: z.literal(`option`),
-
-  primaryName: z.string(),
-  aliases: z.array(z.string()),
-
-  description: z.string().nullable(),
-
-  minLen: z.number(),
-  extraLen: z.number().nullable(),
-
-  allowBinding: z.boolean(),
-  allowBoolean: z.boolean(),
-  isHidden: z.boolean(),
-  isRequired: z.boolean(),
-});
-
-const componentType = z.union([
-  z.intersection(z.object({
-    type: z.literal(`positional`),
-  }), z.union([
-    keywordPositionalType,
-    dynamicPositionalType,
-  ])),
-  optionType,
-]);
-
-const commandSpecType = z.object({
-  primaryPath: z.array(z.string()),
-  aliases: z.array(z.array(z.string())),
-  category: z.string().nullable(),
-  description: z.string().nullable(),
-  details: z.string().nullable(),
-  examples: z.array(exampleType),
-  components: z.array(componentType),
-  requiredOptions: z.array(z.number()),
-});
-
-const loaderSchema = z.object({
-  binaryName: z.string(),
-  commandSpec: commandSpecType,
-});
-
-export type CliOptions = {
-  name: string;
-  path: string;
+export type BaseData = {
+  binaryName: string;
+  commandSpec: CommandSpec;
 };
 
-export function clipanionLoader({ name, path }: CliOptions): Loader {
+export type Data<TExtraData extends Record<string, unknown>> = BaseData & TExtraData;
+
+export type CliOptions<TExtraData extends Record<string, unknown>> = {
+  id?: string;
+  name: string;
+  path: string;
+  extraData?: (data: BaseData) => TExtraData | Promise<TExtraData>;
+  template?: (data: Data<TExtraData>) => string;
+};
+
+export function clipanionLoader<TExtraData extends Record<string, unknown> = {}>({ id, name, path, extraData: extraDataFn, template: templateFn }: CliOptions<TExtraData>): Loader {
   return {
     name: `@clipanion/astro`,
-    schema: loaderSchema,
-    load: async ({ store }) => {
+
+    load: async ({ renderMarkdown, store }) => {
       const binary = new ClipanionBinary(path);
       const commandSpecs = await binary.commands();
 
       for (const commandSpec of commandSpecs) {
-        const data: z.infer<typeof loaderSchema> = {
+        const baseData: BaseData = {
           binaryName: name,
           commandSpec,
         };
 
+        const extraData = extraDataFn
+          ? await extraDataFn(baseData)
+          : {} as TExtraData;
+
+        const data: Data<TExtraData> = { ...baseData, ...extraData };
+
+        const rendered = templateFn
+          ? await renderMarkdown(templateFn(data))
+          : undefined;
+
         store.set({
-          id: commandSpec.primaryPath.join(`/`),
+          id: [id ?? name, ...commandSpec.primaryPath].join(`/`),
           data,
+          rendered,
         });
       }
     },
