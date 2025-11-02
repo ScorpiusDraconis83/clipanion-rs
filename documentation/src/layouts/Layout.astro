@@ -13,7 +13,7 @@ const commands = await getCollection(`git`);
     <nav class={`bg-white border-stone-200 border rounded-sm p-8 flex-none w-64`}>
       <ul>
         {commands.map(command => (
-          <li><a href={`/${command.id}`}>{command.id}</a></li>
+          <li><a href={`/${command.id}`}>{command.data.binaryName} {command.data.commandSpec.primaryPath.join(` `)}</a></li>
         ))}
       </ul>
     </nav>

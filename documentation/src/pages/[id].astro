@@ -13,19 +13,20 @@ export async function getStaticPaths() {
 }
 
 const {command} = Astro.props;
+const {binaryName, commandSpec} = command.data;
 
-const options = command.data.components
+const options = commandSpec.components
   .filter(component => component.type === `option` && !component.isHidden);
 ---
 
 <Layout>
   <h1 class={`text-2xl font-bold`}>
-    {command.data.primaryPath.join(`/`)}
+    {binaryName} {commandSpec.primaryPath.join(`/`)}
   </h1>
 
-  <p>{command.data.description}</p>
+  <p>{commandSpec.description}</p>
 
-  <Code lang={`bash`} code={`git ${command.data.primaryPath.join(`/`)}`}/>
+  <Code lang={`bash`} code={`git ${commandSpec.primaryPath.join(`/`)}`}/>
 
   {options.length > 0 && <>
     <h2 class={`text-lg font-bold`}>Options</h2>

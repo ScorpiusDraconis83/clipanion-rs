@@ -355,7 +355,7 @@ type Machine<'cmds>
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "camelCase", tag = "type"))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase", tag = "positionalType"))]
 #[cfg_attr(feature = "serde", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", ts(export_to = "index.ts"))]
 pub enum PositionalSpec {
