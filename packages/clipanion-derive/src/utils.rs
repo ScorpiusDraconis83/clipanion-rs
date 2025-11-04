@@ -65,7 +65,7 @@ impl Parse for AttributeBag {
         // Prepare a vector to hold the named parameters
         let mut attributes
             = HashMap::new();
-        
+
         // Parse the remaining named parameters
         while !input.is_empty() {
             let name
@@ -120,7 +120,7 @@ impl OptionBag {
 
         let mut attributes = AttributeBag::default();
         if input.peek(Token![,]) {
-            input.parse::<Token![,]>()?;            
+            input.parse::<Token![,]>()?;
             attributes = input.parse()?;
         }
 
@@ -150,8 +150,7 @@ impl Parse for OptionBag {
 
 #[derive(Clone, Default)]
 pub struct CliAttributes {
-    pub description: Option<String>,
-    pub details: Option<String>,
+    pub description: Option<LitStr>,
     pub attributes: HashMap<String, Vec<Attribute>>,
 }
 
@@ -186,7 +185,7 @@ impl CliAttributes {
             = CliAttributes::default();
         let mut remaining_attributes
             = vec![];
-    
+
         for attr in std::mem::take(attrs).into_iter(){
             let path
                 = attr.path();
@@ -206,27 +205,17 @@ impl CliAttributes {
                         return Err(syn::Error::new_spanned(attr, "Expected a string literal"));
                     };
 
-                    let text
-                        = text.value().trim().to_string();
-                    let mut lines
-                        = text.split('\n').peekable();
-
-                    cli_attributes.description = lines.next()
-                        .map(|line| line.to_string());
-
-                    if lines.peek().is_some() {
-                        cli_attributes.details = Some(lines.collect::<Vec<_>>().join("\n"));
-                    }
+                    cli_attributes.description = Some(text.clone());
                 },
 
                 "cli" => {
                     if path.segments.len() != 2 {
                         return Err(syn::Error::new_spanned(attr, "Expected a named attribute"));
                     }
-            
+
                     let name
                         = path.segments[1].ident.to_string();
-            
+
                     cli_attributes.attributes.entry(name)
                         .or_insert_with(Vec::new)
                         .push(attr);
@@ -239,7 +228,7 @@ impl CliAttributes {
        }
 
         *attrs = remaining_attributes;
-    
+
         Ok(cli_attributes)
     }
 
@@ -251,7 +240,9 @@ impl CliAttributes {
                 }
 
                 let attr = &values[0];
-                Self::parse_args(attr).map(Some)
+                let res = Self::parse_args(attr).map(Some);
+
+                res
             },
 
             None => Ok(None),
@@ -270,6 +261,6 @@ impl CliAttributes {
             .map(|punctuated| punctuated.into_iter().collect())
             .collect();
 
-        Ok(path_lits)        
+        Ok(path_lits)
     }
 }

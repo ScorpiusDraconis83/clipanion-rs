@@ -1,4 +1,5 @@
 import { ClipanionBinary, CommandSpec } from '@clipanion/tools';
+import { DataEntry as AstroDataEntry } from 'astro/content/config';
 import type { Loader } from 'astro/loaders';
 
 export type BaseData = {
@@ -6,43 +7,59 @@ export type BaseData = {
   commandSpec: CommandSpec;
 };
 
-export type Data<TExtraData extends Record<string, unknown>> = BaseData & TExtraData;
+export type DataEntry<T extends Record<string, unknown> = Record<string, unknown>> = {
+  id: string;
+  data: T;
+  filePath?: string;
+};
 
-export type CliOptions<TExtraData extends Record<string, unknown>> = {
+export type CliOptions<T extends Record<string, unknown>> = {
   id?: string;
   name: string;
   path: string;
-  extraData?: (data: BaseData) => TExtraData | Promise<TExtraData>;
-  template?: (data: Data<TExtraData>) => string;
+  entry?: (entry: DataEntry<BaseData>) => DataEntry<T> | Promise<DataEntry<T>>;
+  body?: (data: DataEntry<T>) => string;
 };
 
-export function clipanionLoader<TExtraData extends Record<string, unknown> = {}>({ id, name, path, extraData: extraDataFn, template: templateFn }: CliOptions<TExtraData>): Loader {
+export function clipanionLoaders<T extends Record<string, unknown> = BaseData>(opts: CliOptions<T>) {
+  const binary = new ClipanionBinary(opts.path);
+  const commandSpecs = binary.commands();
+
+  return {
+    commands: createCommandLoader<T>(opts, commandSpecs),
+  };
+};
+
+function createCommandLoader<T extends Record<string, unknown> = BaseData>({ id, name, entry: entryFn, body: bodyFn }: CliOptions<T>, commandSpecs: Promise<CommandSpec[]>): Loader {
   return {
     name: `@clipanion/astro`,
 
     load: async ({ renderMarkdown, store }) => {
-      const binary = new ClipanionBinary(path);
-      const commandSpecs = await binary.commands();
-
-      for (const commandSpec of commandSpecs) {
+      store.clear();
+      for (const commandSpec of await commandSpecs) {
         const baseData: BaseData = {
           binaryName: name,
           commandSpec,
         };
 
-        const extraData = extraDataFn
-          ? await extraDataFn(baseData)
-          : {} as TExtraData;
+        const baseEntry = {
+          id: [id ?? name, ...commandSpec.primaryPath].join(`/`),
+          data: baseData,
+        };
 
-        const data: Data<TExtraData> = { ...baseData, ...extraData };
+        const entry = entryFn
+          ? await entryFn(baseEntry)
+          : baseEntry as any as DataEntry<T>;
 
-        const rendered = templateFn
-          ? await renderMarkdown(templateFn(data))
+        const body = bodyFn?.(entry);
+
+        const rendered = body
+          ? await renderMarkdown(body)
           : undefined;
 
         store.set({
-          id: [id ?? name, ...commandSpec.primaryPath].join(`/`),
-          data,
+          ...entry,
+          body,
           rendered,
         });
       }

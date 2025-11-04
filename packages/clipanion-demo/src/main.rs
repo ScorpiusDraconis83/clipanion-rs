@@ -32,23 +32,27 @@ impl GitAddCommand {
     }
 }
 
+/// Record changes to the repository.
 #[cli::command]
 #[cli::path("commit")]
-#[cli::description("Record changes to the repository.")]
 struct GitCommitCommand {
-    #[cli::option("-a,--all", default = false, description = "Automatically stage files that have been modified and deleted.")]
+    /// Automatically stage files that have been modified and deleted.
+    #[cli::option("-a,--all", default = false)]
     all: bool,
 
-    #[cli::option("--allow-empty", default = false, description = "Allow empty commits.")]
+    /// Allow empty commits.
+    #[cli::option("--allow-empty", default = false)]
     allow_empty: bool,
 
-    #[cli::option("--amend", default = false, description = "Replace the tip of the current branch by creating a new commit.")]
+    /// Replace the tip of the current branch by creating a new commit.
+    #[cli::option("--amend", default = false)]
     amend: bool,
 
-    #[cli::option("-m,--message", description = "Use the given message as the commit message.")]
+    /// Use the given message as the commit message.
+    #[cli::option("-m,--message")]
     message: Option<String>,
 
-    #[cli::positional(description = "Commit the contents of the files that match the pathspec without recording the changes already added to the index.")]
+    /// Commit the contents of the files that match the pathspec without recording the changes already added to the index.
     paths: Vec<String>,
 }
 
@@ -57,20 +61,23 @@ impl GitCommitCommand {
     }
 }
 
+/// Remove files from the working tree and from the index.
 #[cli::command]
 #[cli::path("rm")]
-#[cli::description("Remove files from the working tree and from the index.")]
 struct GitRmCommand {
-    #[cli::option("-f,--force", default = false, description = "Override the up-to-date check.")]
+    /// Override the up-to-date check.
+    #[cli::option("-f,--force", default = false)]
     force: bool,
 
-    #[cli::option("--cached", default = false, description = "Unstage and remove paths only from the index.")]
+    /// Unstage and remove paths only from the index.
+    #[cli::option("--cached", default = false)]
     cached: bool,
 
-    #[cli::option("-n,--dry-run", default = false, description = "Don’t actually remove the file(s), just show if they exist and/or will be ignored.")]
+    /// Don’t actually remove the file(s), just show if they exist and/or will be ignored.
+    #[cli::option("-n,--dry-run", default = false)]
     dry_run: bool,
 
-    #[cli::positional(description = "Files to remove.")]
+    /// Files to remove.
     paths: Vec<String>,
 }
 
@@ -79,10 +86,53 @@ impl GitRmCommand {
     }
 }
 
+/// List the configuration variables in the config file.
+#[cli::command]
+#[cli::path("config", "list")]
+struct GitConfigListCommand {
+}
+
+impl GitConfigListCommand {
+    async fn execute(&self) {
+    }
+}
+
+/// Retrieve the value of a configuration variable.
+#[cli::command]
+#[cli::path("config", "get")]
+struct GitConfigGetCommand {
+    /// The name of the configuration variable.
+    name: String,
+}
+
+impl GitConfigGetCommand {
+    async fn execute(&self) {
+    }
+}
+
+/// Set the value of a configuration variable.
+#[cli::command]
+#[cli::path("config", "set")]
+struct GitConfigSetCommand {
+    /// The name of the configuration variable.
+    name: String,
+
+    /// The value of the configuration variable.
+    value: String,
+}
+
+impl GitConfigSetCommand {
+    async fn execute(&self) {
+    }
+}
+
 #[cli::program(async)]
 enum MyCli {
     GitAdd(GitAddCommand),
     GitCommit(GitCommitCommand),
+    GitConfigGet(GitConfigGetCommand),
+    GitConfigList(GitConfigListCommand),
+    GitConfigSet(GitConfigSetCommand),
     GitRm(GitRmCommand),
 }
 

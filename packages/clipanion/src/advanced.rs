@@ -99,6 +99,8 @@ fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuil
     match builtin {
         BuiltinCommand::Describe => {
             #[cfg(not(feature = "serde"))] {
+                println!("Using this command requires the 'serde' feature to be enabled.");
+
                 return Err(clipanion_core::Error::InternalError);
             }
 

@@ -28,6 +28,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
     let command_description = command_cli_attributes
         .take_unique::<LitStr>("description")?
+        .or(command_cli_attributes.description.clone())
         .map(|lit| quote!{command_spec.description = Some(#lit.to_string());});
 
     let is_default = command_attribute_bag.take("default")
@@ -187,6 +188,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
             let description = option_bag.attributes.take("description")
                 .map(expect_lit!(Lit::Str))
                 .transpose()?
+                .or(cli_attributes.description)
                 .map(|lit| lit.value())
                 .to_option_tokens(|s| quote!{#s.to_string()});
 
@@ -383,6 +385,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
             let description = positional_bag.take("description")
                 .map(expect_lit!(Lit::Str))
                 .transpose()?
+                .or(cli_attributes.description)
                 .map(|lit| lit.value())
                 .to_option_tokens(|s| quote!{#s.to_string()});
 
