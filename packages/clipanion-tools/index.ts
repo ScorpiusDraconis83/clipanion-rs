@@ -91,9 +91,14 @@ export class ClipanionBinary {
       if (token.type === `syntax`)
         continue;
 
-      const description = token.type === `binary` || token.type === `keyword`
-        ? commandSpec.description
-        : commandSpec.components[token.componentId]!.description;
+      let description: string | null = commandSpec.documentation?.description ?? null;
+
+      if (`componentId` in token) {
+        const component = commandSpec.components[token.componentId]!;
+        if (`documentation` in component) {
+          description = component.documentation?.description ?? null;
+        }
+      }
 
       switch (token.type) {
         case `keyword`: {

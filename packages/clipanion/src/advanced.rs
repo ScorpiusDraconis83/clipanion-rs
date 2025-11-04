@@ -177,7 +177,7 @@ fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuil
                 = HashMap::<_, Vec<_>>::new();
 
             for command in &commands {
-                if command.description.is_some() {
+                if command.documentation.is_some() {
                     let category = command.category
                         .as_ref()
                         .map(|category| category.as_ref());
@@ -212,12 +212,12 @@ fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuil
                 });
 
                 for command in commands {
-                    if let Some(usage) = &command.description {
+                    if let Some(documentation) = &command.documentation {
                         output_string.push_str("\n  \x1b[1m");
                         output_string.push_str(&command.usage().oneliner(&env.info));
                         output_string.push_str("\x1b[0m\n      ");
                         write_color(&mut output_string, (128, 128, 128));
-                        output_string.push_str(usage);
+                        output_string.push_str(&documentation.description);
                         output_string.push_str("\x1b[0m\n");
                     }
                 }

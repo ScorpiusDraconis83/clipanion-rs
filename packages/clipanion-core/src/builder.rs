@@ -26,6 +26,25 @@ pub struct Info {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+#[cfg_attr(feature = "serde", derive(ts_rs::TS))]
+#[cfg_attr(feature = "serde", ts(export_to = "index.ts"))]
+pub struct Documentation {
+    pub description: String,
+    pub details: Option<String>,
+}
+
+impl Documentation {
+    pub fn new(description: &str, details: Option<&str>) -> Self {
+        Documentation {
+            description: description.to_string(),
+            details: details.map(|details| details.to_string()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "type"))]
 #[cfg_attr(feature = "serde", derive(ts_rs::TS))]
 #[cfg_attr(feature = "serde", ts(export_to = "index.ts"))]
@@ -365,7 +384,7 @@ pub enum PositionalSpec {
 
     Dynamic {
         name: String,
-        description: Option<String>,
+        documentation: Option<Documentation>,
 
         min_len: usize,
         extra_len: Option<usize>,
@@ -437,7 +456,8 @@ impl PositionalSpec {
     pub fn optional() -> Self {
         PositionalSpec::Dynamic {
             name: "".to_string(),
-            description: None,
+
+            documentation: None,
 
             min_len: 0,
             extra_len: Some(1),
@@ -450,7 +470,8 @@ impl PositionalSpec {
     pub fn required() -> Self {
         PositionalSpec::Dynamic {
             name: "".to_string(),
-            description: None,
+
+            documentation: None,
 
             min_len: 1,
             extra_len: Some(0),
@@ -463,7 +484,8 @@ impl PositionalSpec {
     pub fn rest() -> Self {
         PositionalSpec::Dynamic {
             name: "".to_string(),
-            description: None,
+
+            documentation: None,
 
             min_len: 0,
             extra_len: None,
@@ -476,7 +498,8 @@ impl PositionalSpec {
     pub fn proxy() -> Self {
         PositionalSpec::Dynamic {
             name: "".to_string(),
-            description: None,
+
+            documentation: None,
 
             min_len: 0,
             extra_len: None,
@@ -496,7 +519,7 @@ pub struct OptionSpec {
     pub primary_name: String,
     pub aliases: Vec<String>,
 
-    pub description: Option<String>,
+    pub documentation: Option<Documentation>,
 
     pub min_len: usize,
     pub extra_len: Option<usize>,
@@ -531,7 +554,8 @@ impl OptionSpec {
         OptionSpec {
             primary_name,
             aliases,
-            description: None,
+
+            documentation: None,
 
             min_len: 0,
             extra_len: Some(0),
@@ -550,7 +574,8 @@ impl OptionSpec {
         OptionSpec {
             primary_name,
             aliases,
-            description: None,
+
+            documentation: None,
 
             min_len: 1,
             extra_len: Some(0),
@@ -643,8 +668,7 @@ pub struct CommandSpec {
     pub primary_path: Vec<String>,
     pub aliases: Vec<Vec<String>>,
     pub category: Option<String>,
-    pub description: Option<String>,
-    pub details: Option<String>,
+    pub documentation: Option<Documentation>,
     pub examples: Vec<Example>,
     pub components: Vec<Component>,
     pub required_options: Vec<usize>,

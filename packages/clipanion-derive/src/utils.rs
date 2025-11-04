@@ -1,30 +1,9 @@
 use std::collections::HashMap;
 
-use quote::{quote, ToTokens};
-use proc_macro2::TokenStream;
 use syn::{parse::{Parse, ParseStream}, punctuated::Punctuated, Attribute, Expr, ExprLit, Ident, Lit, LitBool, LitStr, Meta, Token};
 
 pub fn to_lit_str<T: AsRef<str>>(str: T) -> LitStr {
     LitStr::new(str.as_ref(), proc_macro2::Span::call_site())
-}
-
-pub trait ToOptionTokens<T> {
-    fn to_option_tokens<F: FnOnce(T) -> TokenStream>(self, f: F) -> TokenStream;
-}
-
-impl<T: ToTokens> ToOptionTokens<T> for Option<T> {
-    fn to_option_tokens<F: FnOnce(T) -> TokenStream>(self, f: F) -> TokenStream {
-        match self {
-            Some(value) => {
-                let value = f(value);
-                quote!{Some(#value)}
-            },
-
-            None => {
-                quote!{None}
-            },
-        }
-    }
 }
 
 #[derive(Clone, Default)]
@@ -150,7 +129,7 @@ impl Parse for OptionBag {
 
 #[derive(Clone, Default)]
 pub struct CliAttributes {
-    pub description: Option<LitStr>,
+    pub documentation: Option<String>,
     pub attributes: HashMap<String, Vec<Attribute>>,
 }
 
@@ -201,11 +180,16 @@ impl CliAttributes {
                         return Err(syn::Error::new_spanned(attr, "Expected a name value attribute"));
                     };
 
-                    let Expr::Lit(ExprLit {lit: Lit::Str(text), ..}) = &meta.value else {
+                    let Expr::Lit(ExprLit {lit: Lit::Str(lit_str), ..}) = &meta.value else {
                         return Err(syn::Error::new_spanned(attr, "Expected a string literal"));
                     };
 
-                    cli_attributes.description = Some(text.clone());
+                    if let Some(documentation) = cli_attributes.documentation.as_mut() {
+                        documentation.push('\n');
+                        documentation.push_str(&lit_str.value());
+                    } else {
+                        cli_attributes.documentation = Some(lit_str.value());
+                    }
                 },
 
                 "cli" => {

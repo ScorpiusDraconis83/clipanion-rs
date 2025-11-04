@@ -3,7 +3,52 @@ use proc_macro2::Span;
 use quote::quote;
 use syn::{Attribute, DeriveInput, Expr, ExprLit, Fields, Ident, Lit, LitStr, Meta, Path};
 
-use crate::{shared::expect_lit, utils::{to_lit_str, AttributeBag, CliAttributes, OptionBag, ToOptionTokens}};
+use crate::{shared::expect_lit, utils::{to_lit_str, AttributeBag, CliAttributes, OptionBag}};
+
+fn parse_documentation(value: String) -> proc_macro2::TokenStream {
+    let lines
+        = value.trim()
+            .lines()
+            .collect::<Vec<_>>();
+
+    let has_details
+        = lines.len() > 1;
+
+    let mut lines_it
+        = lines.into_iter();
+
+    let description
+        = to_lit_str(lines_it.next().expect("Missing first line"));
+
+    let details = if has_details {
+        let mut detail_lines
+            = vec![String::new()];
+
+        for line in lines_it {
+            if line.is_empty() {
+                detail_lines.push(String::new());
+            } else {
+                let trailing_line
+                    = detail_lines.last_mut().unwrap();
+
+                trailing_line.push(' ');
+                trailing_line.push_str(line);
+            }
+        }
+
+        let raw_details
+            = detail_lines.join("\n\n");
+
+        let trimmed_details
+            = raw_details.trim();
+
+        quote! {Some(#trimmed_details)}
+    } else {
+        quote! {None}
+    };
+
+    quote! {Some(clipanion::core::Documentation::new(#description, #details))}
+}
 
 pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenStream, syn::Error> {
     let syn::Data::Struct(struct_input) = &mut input.data else {
@@ -24,12 +69,13 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
     let command_category = command_cli_attributes
         .take_unique::<LitStr>("category")?
-        .map(|lit| quote!{command_spec.category = Some(#lit.to_string());});
+        .map_or(quote!{None}, |lit| quote!{Some(#lit.to_string());});
 
-    let command_description = command_cli_attributes
+    let command_documentation = command_cli_attributes
         .take_unique::<LitStr>("description")?
-        .or(command_cli_attributes.description.clone())
-        .map(|lit| quote!{command_spec.description = Some(#lit.to_string());});
+        .map(|lit_str| lit_str.value())
+        .or_else(|| command_cli_attributes.documentation.clone())
+        .map_or(quote! {None}, parse_documentation);
 
     let is_default = command_attribute_bag.take("default")
         .map(expect_lit!(Lit::Bool))
@@ -185,12 +231,12 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 }
             }
 
-            let description = option_bag.attributes.take("description")
+            let documentation = option_bag.attributes.take("description")
                 .map(expect_lit!(Lit::Str))
                 .transpose()?
-                .or(cli_attributes.description)
-                .map(|lit| lit.value())
-                .to_option_tokens(|s| quote!{#s.to_string()});
+                .map(|lit_str| lit_str.value())
+                .or_else(|| cli_attributes.documentation.clone())
+                .map_or(quote! {None}, parse_documentation);
 
             let preferred_name = option_bag.path
                 .iter().max_by_key(|name| name.len())
@@ -333,7 +379,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 command_spec.components.push(clipanion::core::Component::Option(clipanion::core::OptionSpec {
                     primary_name: #preferred_name_lit.to_string(),
                     aliases: vec![#(#aliases_lit.to_string()),*],
-                    description: #description,
+                    documentation: #documentation,
                     is_hidden: false,
                     is_required: #is_required,
                     allow_binding: false,
@@ -368,7 +414,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                         command_spec.components.push(clipanion::core::Component::Option(clipanion::core::OptionSpec {
                             primary_name: #no_option_name_lit.to_string(),
                             aliases: vec![],
-                            description: None,
+                            documentation: None,
                             is_hidden: true,
                             is_required: false,
                             allow_binding: false,
@@ -382,12 +428,12 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
             option_bag.attributes.expect_empty()?;
         } else if let Some(mut positional_bag) = cli_attributes.take_unique::<AttributeBag>("positional")? {
-            let description = positional_bag.take("description")
+            let documentation = positional_bag.take("description")
                 .map(expect_lit!(Lit::Str))
                 .transpose()?
-                .or(cli_attributes.description)
-                .map(|lit| lit.value())
-                .to_option_tokens(|s| quote!{#s.to_string()});
+                .map(|lit_str| lit_str.value())
+                .or_else(|| cli_attributes.documentation.clone())
+                .map_or(quote! {None}, parse_documentation);
 
             let is_prefix = positional_bag.take("is_prefix")
                 .map(expect_lit!(Lit::Bool))
@@ -423,7 +469,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 builder.push(quote! {
                     command_spec.components.push(clipanion::core::Component::Positional(clipanion::core::PositionalSpec::Dynamic {
                         name: #field_name_upper.to_string(),
-                        description: #description,
+                        documentation: #documentation,
                         min_len: 0,
                         extra_len: None,
                         is_prefix: #is_prefix,
@@ -475,7 +521,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 builder.push(quote! {
                     command_spec.components.push(clipanion::core::Component::Positional(clipanion::core::PositionalSpec::Dynamic {
                         name: #field_name_upper.to_string(),
-                        description: #description,
+                        documentation: #documentation,
                         min_len: #min_len,
                         extra_len: #extra_len,
                         is_prefix: #is_prefix,
@@ -546,8 +592,8 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     let mut command_spec
                         = clipanion::core::CommandSpec::default();
 
-                    #command_category
-                    #command_description
+                    command_spec.category = #command_category;
+                    command_spec.documentation = #command_documentation;
 
                     #(#builder)*
 

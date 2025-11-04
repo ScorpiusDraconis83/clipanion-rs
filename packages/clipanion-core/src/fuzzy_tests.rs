@@ -55,7 +55,7 @@ fn gen_random_positional_spec<R: Rng>(rng: &mut R, use_optional_positionals: boo
 
         1 => PositionalSpec::Dynamic {
             name: "positional".to_string(),
-            description: None,
+            documentation: None,
             min_len: rng.random_range(0..3),
             extra_len: match use_optional_positionals {
                 true => gen_optional(rng, |rng| rng.random_range(0..3)),
@@ -73,7 +73,7 @@ fn gen_random_option_spec<R: Rng>(rng: &mut R, use_optional_positionals: bool) -
     OptionSpec {
         primary_name: gen_random_option_name(rng),
         aliases: vec![],
-        description: None,
+        documentation: None,
         min_len: rng.random_range(0..3),
         allow_binding: rng.random_bool(0.5),
         is_hidden: false,
@@ -220,11 +220,11 @@ fn gen_random_command_line<R: Rng>(rng: &mut R, command_spec: &CommandSpec, comm
                     = once(&option_spec.primary_name)
                         .chain(option_spec.aliases.iter())
                         .collect::<Vec<_>>();
-        
+
                 for (_, values) in indexed_command_values.entry(i).or_default() {
                     let name
                         = all_names[rng.random_range(0..all_names.len())];
-        
+
                     let mut args
                         = vec![name.to_string()];
 

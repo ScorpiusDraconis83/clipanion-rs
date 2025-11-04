@@ -23,21 +23,23 @@ const gitLoaders = clipanionLoaders({
     const options = commandSpec.components
       .filter((component): component is Extract<typeof component, { type: `option` }> => component.type === `option` && !component.isHidden);
 
-    return dedent`
+    return dedent.withOptions({ alignValues: true })`
       ## ${sidebar.label}
 
-      ${commandSpec.description}
+      ${commandSpec.documentation?.description}
 
       \`\`\`bash
       ${binaryName} ${commandSpec.primaryPath.join(` `)}
       \`\`\`
+
+      ${commandSpec.documentation?.details}
 
       ${options.length > 0 ? dedent`
         ### Options
 
         ${options.map(option => dedent`
           #### ${option.primaryName}
-          ${option.description}
+          ${option.documentation?.description}
         `).join(`\n`)}
       ` : ``}
     `;
