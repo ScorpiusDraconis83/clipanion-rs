@@ -1,7 +1,7 @@
-import { ClipanionBinary, parseCli } from '@clipanion/tools';
-import type { Code, Html, InlineCode, Node } from 'mdast';
-import { Transformer } from 'unified';
-import { visit } from 'unist-util-visit';
+import {ClipanionBinary, parseCli}         from '@clipanion/tools';
+import type {Code, Html, InlineCode, Node} from 'mdast';
+import {Transformer}                       from 'unified';
+import {visit}                             from 'unist-util-visit';
 
 export type PluginOptions = {
   clis: Record<string, {
@@ -33,7 +33,7 @@ function applyAnnotation(source: string, annotations: Array<AnnotatedSlice>) {
     .map(([_, group]) => group);
 
   for (const group of sortedGroups) {
-    const { start, end } = group[0]!;
+    const {start, end} = group[0]!;
 
     let prefix = ``;
     let suffix = ``;
@@ -53,7 +53,7 @@ function applyAnnotation(source: string, annotations: Array<AnnotatedSlice>) {
   return source;
 }
 
-export function clipanionRemark({ clis, enableBlocks = true, enableInline = true }: PluginOptions): Transformer {
+export function clipanionRemark({clis, enableBlocks = true, enableInline = true}: PluginOptions): Transformer {
   const binaries = Object.fromEntries(
     Object.entries(clis).map(([name, cli]) => [name, {
       ...cli,
