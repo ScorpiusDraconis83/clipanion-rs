@@ -74,6 +74,7 @@ fn gen_random_option_spec<R: Rng>(rng: &mut R, use_optional_positionals: bool) -
         primary_name: gen_random_option_name(rng),
         aliases: vec![],
         documentation: None,
+        default_value: None,
         min_len: rng.random_range(0..3),
         allow_binding: rng.random_bool(0.5),
         is_hidden: false,

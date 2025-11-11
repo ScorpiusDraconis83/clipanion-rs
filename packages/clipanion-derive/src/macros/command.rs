@@ -317,6 +317,17 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 = option_bag.attributes.take("default")
                     .or_else(|| if is_option_type {Some(none_expr.clone())} else {None});
 
+            let default_value_lit = match &default_value {
+                Some(expr) => {
+                    let expr_str = quote!{#expr}.to_string();
+                    quote!{Some(#expr_str.to_string())}
+                },
+
+                None => {
+                    quote!{None}
+                },
+            };
+
             let is_required
                 = default_value.is_none();
 
@@ -380,6 +391,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     primary_name: #preferred_name_lit.to_string(),
                     aliases: vec![#(#aliases_lit.to_string()),*],
                     documentation: #documentation,
+                    default_value: #default_value_lit,
                     is_hidden: false,
                     is_required: #is_required,
                     allow_binding: false,
@@ -405,9 +417,15 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                             partial.#field_ident = Default::default();
                         });
                     } else {
-                        hydraters.push(quote! {
-                            partial.#field_ident = Some(Default::default());
-                        });
+                        if is_option_type || is_bool {
+                            hydraters.push(quote! {
+                                partial.#field_ident = Some(Default::default());
+                            });
+                        } else {
+                            hydraters.push(quote! {
+                                partial.#field_ident = None;
+                            });
+                        }
                     }
 
                     builder.push(quote! {
@@ -415,6 +433,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                             primary_name: #no_option_name_lit.to_string(),
                             aliases: vec![],
                             documentation: None,
+                            default_value: None,
                             is_hidden: true,
                             is_required: false,
                             allow_binding: false,

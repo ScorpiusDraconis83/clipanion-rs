@@ -4,8 +4,14 @@ use clipanion::{prelude::*, test_cli_failure, test_cli_success, CommandError, Er
 
 #[derive(Debug, PartialEq, Eq)]
 struct Size {
-    pub _width: usize,
-    pub _height: usize,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl Size {
+    fn new(width: usize, height: usize) -> Self {
+        Size {width, height}
+    }
 }
 
 impl FromStr for Size {
@@ -23,12 +29,15 @@ impl FromStr for Size {
         let height
             = parts[1].parse::<usize>().map_err(|_| "Invalid height")?;
 
-        Ok(Size {_width: width, _height: height})
+        Ok(Size {width, height})
     }
 }
 
 #[cli::command(default)]
 struct MyCommand {
+    #[cli::option("--size", default = Size::new(0, 0))]
+    size_opt: Size,
+
     size: Size,
 }
 
@@ -43,7 +52,12 @@ enum MyCli {
 }
 
 test_cli_success!(it_works, MyCli, MyCommand, &["10x20"], |command| {
-    assert_eq!(command.size, Size {_width: 10, _height: 20});
+    assert_eq!(command.size, Size {width: 10, height: 20});
+});
+
+test_cli_success!(it_works_with_option, MyCli, MyCommand, &["--size", "10x20", "30x40"], |command| {
+    assert_eq!(command.size_opt, Size {width: 10, height: 20});
+    assert_eq!(command.size, Size {width: 30, height: 40});
 });
 
 test_cli_failure!(it_fails_with_invalid_data, MyCli, &["10x"], |error| {

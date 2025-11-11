@@ -8,7 +8,7 @@ export type Documentation = { description: string, details: string | null, };
 
 export type Example = { command: string, description: string, };
 
-export type OptionSpec = { primaryName: string, aliases: Array<string>, documentation: Documentation | null, minLen: number, extraLen: number | null, allowBinding: boolean, allowBoolean: boolean, isHidden: boolean, isRequired: boolean, };
+export type OptionSpec = { primaryName: string, aliases: Array<string>, documentation: Documentation | null, defaultValue: string | null, minLen: number, extraLen: number | null, allowBinding: boolean, allowBoolean: boolean, isHidden: boolean, isRequired: boolean, };
 
 export type PositionalSpec = { "positionalType": "keyword", expected: string, } | { "positionalType": "dynamic", name: string, documentation: Documentation | null, min_len: number, extra_len: number | null, is_prefix: boolean, is_proxy: boolean, };
 

@@ -520,6 +520,7 @@ pub struct OptionSpec {
     pub aliases: Vec<String>,
 
     pub documentation: Option<Documentation>,
+    pub default_value: Option<String>,
 
     pub min_len: usize,
     pub extra_len: Option<usize>,
@@ -556,6 +557,7 @@ impl OptionSpec {
             aliases,
 
             documentation: None,
+            default_value: None,
 
             min_len: 0,
             extra_len: Some(0),
@@ -576,6 +578,7 @@ impl OptionSpec {
             aliases,
 
             documentation: None,
+            default_value: None,
 
             min_len: 1,
             extra_len: Some(0),
