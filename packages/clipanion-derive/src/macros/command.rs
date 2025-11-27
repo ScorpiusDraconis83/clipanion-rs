@@ -333,7 +333,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
             if is_vec_type {
                 partial_struct_members.push(quote! {
-                    #field_ident: Vec<#internal_field_type>,
+                    pub #field_ident: Vec<#internal_field_type>,
                 });
 
                 partial_struct_default_initializers.push(quote! {
@@ -360,7 +360,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 };
 
                 partial_struct_members.push(quote! {
-                    #field_ident: #partial_struct_member_type,
+                    pub #field_ident: #partial_struct_member_type,
                 });
 
                 partial_struct_default_initializers.push(quote! {
@@ -466,7 +466,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
             if is_vec_type {
                 partial_struct_members.push(quote! {
-                    #field_ident: Vec<#internal_field_type>,
+                    pub #field_ident: Vec<#internal_field_type>,
                 });
 
                 partial_struct_default_initializers.push(quote! {
@@ -497,7 +497,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 });
             } else {
                 partial_struct_members.push(quote! {
-                    #field_ident: Option<#field_type>,
+                    pub #field_ident: Option<#field_type>,
                 });
 
                 partial_struct_default_initializers.push(quote! {
@@ -566,8 +566,8 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
         #[derive(Debug)]
         pub struct #partial_struct_ident {
-            cli_environment: clipanion::advanced::Environment,
-            cli_path: Vec<String>,
+            pub cli_environment: clipanion::advanced::Environment,
+            pub cli_path: Vec<String>,
 
             #(#partial_struct_members)*
         }
