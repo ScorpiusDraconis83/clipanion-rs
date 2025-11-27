@@ -100,6 +100,7 @@ pub fn cli_enum_macro(_args: TokenStream, mut input: DeriveInput) -> Result<Toke
     Ok(TokenStream::from(quote! {
         #input
 
+        #[derive(Debug)]
         pub enum #partial_enum_ident {
             #(#partial_enum_items,)*
         }
