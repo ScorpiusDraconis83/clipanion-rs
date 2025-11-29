@@ -44,6 +44,20 @@ impl GitAddCommand {
     }
 }
 
+#[cli::command]
+#[cli::path("branch")]
+struct GitBranchCommand {
+    /// Degree of verbosity.
+    #[cli::option("-v,--verbose", default = 0, counter)]
+    verbose: u8,
+}
+
+impl GitBranchCommand {
+    async fn execute(&self) {
+        println!("Verbose: {}", self.verbose);
+    }
+}
+
 /// Record changes to the repository.
 ///
 /// Create a new commit containing the current contents of the index and the given log message describing the changes. The new commit is a direct
@@ -175,6 +189,7 @@ impl GitConfigSetCommand {
 #[cli::program(async)]
 enum MyCli {
     GitAdd(GitAddCommand),
+    GitBranch(GitBranchCommand),
     GitCommit(GitCommitCommand),
     GitConfigGet(GitConfigGetCommand),
     GitConfigList(GitConfigListCommand),

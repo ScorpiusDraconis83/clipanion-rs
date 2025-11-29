@@ -14,7 +14,7 @@ pub struct AttributeBag {
 impl AttributeBag {
     pub fn expect_empty(&self) -> syn::Result<()> {
         if !self.attributes.is_empty() {
-            return Err(syn::Error::new_spanned(self.attributes.iter().next().unwrap().1, "Unsupported extra attributes"));
+            return Err(syn::Error::new_spanned(self.attributes.iter().next().unwrap().1, format!("Unsupported extra attributes: {}", self.attributes.keys().cloned().collect::<Vec<_>>().join(", "))));
         }
 
         Ok(())

@@ -141,6 +141,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
 
         let mut internal_field_type = &field.ty;
         let mut is_option_type = false;
+
         // Option<Option<T>>; means both --foo without arguments, or --foo arg1 arg2 with arguments, are valid
         let mut is_option2_type = false;
         let mut is_vec_type = false;
@@ -194,6 +195,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
         if let Some(mut option_bag) = cli_attributes.take_unique::<OptionBag>("option")? {
             let mut is_bool = false;
             let mut is_tuple = false;
+            let mut is_counter = false;
 
             let mut item_count = 1usize;
             let mut min_len = 1usize;
@@ -202,6 +204,13 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
             if let syn::Type::Path(type_path) = &internal_field_type {
                 if &type_path.path.segments[0].ident == "bool" {
                     is_bool = true;
+
+                    min_len = 0;
+                    extra_len = Some(0);
+                }
+
+                if let Some(_) = option_bag.attributes.take("counter") {
+                    is_counter = true;
 
                     min_len = 0;
                     extra_len = Some(0);
@@ -281,6 +290,8 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 }
             } else if is_bool {
                 quote! {Some(true)}
+            } else if is_counter {
+                quote! {Some(partial.#field_ident.unwrap_or_default() + 1)}
             } else if is_tuple {
                 let mut tuple_fields
                     = vec![];
