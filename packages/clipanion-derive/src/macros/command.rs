@@ -428,7 +428,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                             partial.#field_ident = Default::default();
                         });
                     } else {
-                        if is_option_type || is_bool {
+                        if is_option_type || is_bool || is_counter {
                             hydraters.push(quote! {
                                 partial.#field_ident = Some(Default::default());
                             });
