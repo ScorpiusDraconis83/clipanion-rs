@@ -142,7 +142,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
         let mut internal_field_type = &field.ty;
         let mut is_option_type = false;
 
-        // Option<Option<T>>; means both --foo without arguments, or --foo arg1 arg2 with arguments, are valid
+        // Option<Option<T>>; means the option supports both --foo without arguments (Some(None)), or --foo arg with arguments (Some(Some(...)))
         let mut is_option2_type = false;
         let mut is_vec_type = false;
 
@@ -228,7 +228,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
             }
 
             if is_vec_type {
-                min_len = 0;
+                min_len = 1;
                 extra_len = None;
 
                 if let Some(min_len_expr) = option_bag.attributes.take("min_len") {

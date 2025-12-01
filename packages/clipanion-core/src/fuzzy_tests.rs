@@ -328,16 +328,16 @@ fn test_gen_random_command_line() {
                             .map(|(i, values)| (*i, values.iter().map(|s| s.as_str()).collect::<Vec<_>>()))
                             .collect::<Vec<_>>();
 
-                    // println!();
-                    // println!("==========");
-                    // println!();
-                    // println!("{}", command_spec);
-                    // println!();
-                    // println!("{:?}", command_values);
-                    // println!();
-                    // println!("{:?}", command_line);
-                    // println!();
-                    // println!("{:?}", state.values());
+                    println!();
+                    println!("==========");
+                    println!();
+                    println!("{}", command_spec);
+                    println!();
+                    println!("{:?}", command_values);
+                    println!();
+                    println!("{:?}", command_line);
+                    println!();
+                    println!("{:?}", state.values());
 
                     assert_eq!(state.values(), command_values_str);
                 });
