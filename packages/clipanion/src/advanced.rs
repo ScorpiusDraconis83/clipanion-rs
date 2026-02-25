@@ -1,6 +1,6 @@
 use std::{collections::HashMap, future::Future};
 
-use clipanion_core::{BuiltinCommand, CliBuilder, Info, SelectionResult};
+use clipanion_core::{BuiltinCommand, CliBuilder, CompletionContext, Info, SelectionResult, Shell, compute_completions, generate_completion_script};
 
 use crate::{details::{CliEnums, CommandExecutor, CommandExecutorAsync, CommandProvider}, format::{write_color, write_fading_title_line, Formatter}};
 
@@ -224,6 +224,58 @@ fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuil
             }
 
             print!("{}", output_string);
+
+            Ok(std::process::ExitCode::SUCCESS)
+        },
+
+        BuiltinCommand::CompletionScript { shell, command } => {
+            // Determine the shell to use
+            let shell = shell
+                .as_ref()
+                .and_then(|s| Shell::from_str(s))
+                .or_else(Shell::detect);
+
+            let Some(shell) = shell else {
+                eprintln!("Could not detect shell. Please specify with --shell <bash|zsh|fish>");
+                return Err(clipanion_core::Error::InternalError);
+            };
+
+            // Use the provided command or default to the binary name
+            let command = command
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or(&env.info.binary_name);
+
+            let script = generate_completion_script(shell, command);
+            println!("{}", script);
+
+            Ok(std::process::ExitCode::SUCCESS)
+        },
+
+        BuiltinCommand::Complete { index, args } => {
+            let commands = S::registered_commands()?;
+            let machine = builder.compile();
+
+            // Convert index + args into before/current/after
+            let (before, current, after) = if args.is_empty() {
+                (vec![], "", vec![])
+            } else if index >= args.len() {
+                // Cursor is after all args (completing a new argument)
+                (args.iter().map(|s| *s).collect(), "", vec![])
+            } else {
+                let before: Vec<&str> = args[..index].to_vec();
+                let current = args[index];
+                let after: Vec<&str> = args[index + 1..].to_vec();
+                (before, current, after)
+            };
+
+            let context = CompletionContext::new(before, current, after, current.len());
+            let result = compute_completions(&commands, &machine, &context);
+
+            // Output completions, one per line (simple format for shell consumption)
+            for completion in result.completions {
+                println!("{}", completion.text);
+            }
 
             Ok(std::process::ExitCode::SUCCESS)
         },

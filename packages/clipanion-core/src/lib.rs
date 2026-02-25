@@ -10,9 +10,11 @@ mod usage;
 mod fuzzy_tests;
 
 pub mod builder;
+pub mod completion;
 pub mod runner;
 
 pub use builder::*;
+pub use completion::*;
 pub use errors::*;
 pub use machine::Machine;
 pub use runner::*;

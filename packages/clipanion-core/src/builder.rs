@@ -13,6 +13,20 @@ pub enum BuiltinCommand<'cmds, 'args> {
     Tokenize(Vec<&'args str>),
     Version,
     Help(Vec<&'cmds CommandSpec>),
+    /// Generate shell completion script
+    CompletionScript {
+        /// The shell to generate a script for (bash, zsh, fish)
+        shell: Option<String>,
+        /// The command to invoke for completions (defaults to the binary name)
+        command: Option<String>,
+    },
+    /// Compute completions for the given context
+    Complete {
+        /// The index of the argument being completed (0-based)
+        index: usize,
+        /// All arguments from the command line
+        args: Vec<&'args str>,
+    },
 }
 
 #[derive(Debug, Clone)]

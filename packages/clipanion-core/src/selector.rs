@@ -316,6 +316,52 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
             return Ok(SelectionResult::Builtin(BuiltinCommand::Tokenize(self.args[1..].to_vec())));
         }
 
+        // Handle --clipanion-completion-script [--shell <shell>] [--command <command>]
+        if self.args.len() > 0 && self.args[0] == "--clipanion-completion-script" {
+            let mut shell = None;
+            let mut command = None;
+            let mut i = 1;
+            while i < self.args.len() {
+                match self.args[i] {
+                    "--shell" if i + 1 < self.args.len() => {
+                        shell = Some(self.args[i + 1].to_string());
+                        i += 2;
+                    }
+                    "--command" if i + 1 < self.args.len() => {
+                        command = Some(self.args[i + 1].to_string());
+                        i += 2;
+                    }
+                    _ => i += 1,
+                }
+            }
+            return Ok(SelectionResult::Builtin(BuiltinCommand::CompletionScript { shell, command }));
+        }
+
+        // Handle --clipanion-complete <index> -- <args...>
+        // The index is the 0-based position of the argument being completed
+        // Everything after -- is the user's command line (without binary name)
+        if self.args.len() > 0 && self.args[0] == "--clipanion-complete" {
+            // Find the -- separator
+            let separator_pos = self.args.iter().position(|&arg| arg == "--");
+
+            if let Some(sep_pos) = separator_pos {
+                // Parse index (should be at position 1)
+                let index = if sep_pos > 1 {
+                    self.args[1].parse::<usize>().unwrap_or(0)
+                } else {
+                    0
+                };
+
+                // Everything after -- is the user's arguments
+                let args = self.args[sep_pos + 1..].to_vec();
+
+                return Ok(SelectionResult::Builtin(BuiltinCommand::Complete { index, args }));
+            } else {
+                // Fallback: no separator, assume empty completion
+                return Ok(SelectionResult::Builtin(BuiltinCommand::Complete { index: 0, args: vec![] }));
+            }
+        }
+
         self.candidates = (0..self.states.len()).collect();
 
         self.prune_by_greediness();
