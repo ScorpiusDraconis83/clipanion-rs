@@ -299,25 +299,21 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
             .collect();
     }
 
-    fn handle_everything_is_an_error<T>(&mut self) -> Result<SelectionResult<'cmds, 'args, T>, Error<'cmds>> {
-        if self.args.len() == 1 && matches!(self.args[0], "--version" | "-v") {
-            return Ok(SelectionResult::Builtin(BuiltinCommand::Version));
+    fn check_clipanion_builtins(&self) -> Option<BuiltinCommand<'cmds, 'args>> {
+        if self.args.is_empty() {
+            return None;
         }
 
-        if self.args.len() == 1 && matches!(self.args[0], "--help" | "-h") {
-            return Ok(SelectionResult::Builtin(BuiltinCommand::Help(vec![])));
+        if self.args[0] == "--clipanion-commands" && self.args.len() == 1 {
+            return Some(BuiltinCommand::Describe);
         }
 
-        if self.args.len() == 1 && matches!(self.args[0], "--clipanion-commands") {
-            return Ok(SelectionResult::Builtin(BuiltinCommand::Describe));
-        }
-
-        if self.args.len() > 0 && self.args[0].starts_with("--clipanion-tokens") {
-            return Ok(SelectionResult::Builtin(BuiltinCommand::Tokenize(self.args[1..].to_vec())));
+        if self.args[0].starts_with("--clipanion-tokens") {
+            return Some(BuiltinCommand::Tokenize(self.args[1..].to_vec()));
         }
 
         // Handle --clipanion-completion-script [--shell <shell>] [--command <command>]
-        if self.args.len() > 0 && self.args[0] == "--clipanion-completion-script" {
+        if self.args[0] == "--clipanion-completion-script" {
             let mut shell = None;
             let mut command = None;
             let mut i = 1;
@@ -334,32 +330,37 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
                     _ => i += 1,
                 }
             }
-            return Ok(SelectionResult::Builtin(BuiltinCommand::CompletionScript { shell, command }));
+            return Some(BuiltinCommand::CompletionScript { shell, command });
         }
 
         // Handle --clipanion-complete <index> -- <args...>
-        // The index is the 0-based position of the argument being completed
-        // Everything after -- is the user's command line (without binary name)
-        if self.args.len() > 0 && self.args[0] == "--clipanion-complete" {
-            // Find the -- separator
+        if self.args[0] == "--clipanion-complete" {
             let separator_pos = self.args.iter().position(|&arg| arg == "--");
 
             if let Some(sep_pos) = separator_pos {
-                // Parse index (should be at position 1)
                 let index = if sep_pos > 1 {
                     self.args[1].parse::<usize>().unwrap_or(0)
                 } else {
                     0
                 };
 
-                // Everything after -- is the user's arguments
                 let args = self.args[sep_pos + 1..].to_vec();
-
-                return Ok(SelectionResult::Builtin(BuiltinCommand::Complete { index, args }));
+                return Some(BuiltinCommand::Complete { index, args });
             } else {
-                // Fallback: no separator, assume empty completion
-                return Ok(SelectionResult::Builtin(BuiltinCommand::Complete { index: 0, args: vec![] }));
+                return Some(BuiltinCommand::Complete { index: 0, args: vec![] });
             }
+        }
+
+        None
+    }
+
+    fn handle_everything_is_an_error<T>(&mut self) -> Result<SelectionResult<'cmds, 'args, T>, Error<'cmds>> {
+        if self.args.len() == 1 && matches!(self.args[0], "--version" | "-v") {
+            return Ok(SelectionResult::Builtin(BuiltinCommand::Version));
+        }
+
+        if self.args.len() == 1 && matches!(self.args[0], "--help" | "-h") {
+            return Ok(SelectionResult::Builtin(BuiltinCommand::Help(vec![])));
         }
 
         self.candidates = (0..self.states.len()).collect();
@@ -381,6 +382,14 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
     }
 
     pub fn resolve_state<F: Fn(&State<'args>) -> Result<T, CommandError>, T>(&mut self, f: F) -> Result<SelectionResult<'cmds, 'args, T>, Error<'cmds>> {
+        // Framework-internal flags (--clipanion-*) must be intercepted unconditionally,
+        // before any candidate filtering. These are never user-facing — they're only
+        // invoked by scripts the framework itself generates. Without this early check,
+        // a root-level proxy command would swallow them as proxy arguments.
+        if let Some(builtin) = self.check_clipanion_builtins() {
+            return Ok(SelectionResult::Builtin(builtin));
+        }
+
         if std::env::var("CLIPANION_DEBUG").is_ok() {
             println!("========== Pre-selection states ==========");
 
