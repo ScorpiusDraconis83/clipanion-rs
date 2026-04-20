@@ -99,18 +99,6 @@ pub fn compute_completions<'cmds, 'args>(
     // Run the machine with the arguments before the current token to get the current states
     let states = run_machine_partial(machine, &context.args_before);
 
-    // Check if any state has a complete path (has reached a command)
-    let has_complete_path = states.iter().any(|state| {
-        if state.node_id == ERROR_NODE_ID {
-            return false;
-        }
-        if let Some(cmd) = commands.get(state.context_id) {
-            state.keyword_count >= cmd.primary_path.len()
-        } else {
-            false
-        }
-    });
-
     // Now analyze each state to find valid completions
     let mut completions = BTreeSet::new();
 
@@ -140,8 +128,14 @@ pub fn compute_completions<'cmds, 'args>(
         }
 
         // Collect dynamic transitions (options and positionals)
-        // Only suggest if at least one state has a complete path (reached a command)
-        if has_complete_path {
+        // Only suggest if this specific state's command has a complete path
+        let state_has_complete_path = if let Some(cmd) = command {
+            state.keyword_count >= cmd.primary_path.len()
+        } else {
+            false
+        };
+
+        if state_has_complete_path {
             for (check, transition) in &node.dynamics {
                 match check {
                     Some(Check::IsOption(name)) => {
@@ -619,6 +613,52 @@ mod tests {
         assert!(!texts.contains(&"--verbose"));
         assert!(!texts.contains(&"-m"));
         assert!(!texts.contains(&"--message"));
+    }
+
+    #[test]
+    fn test_no_options_from_longer_path_when_shorter_path_complete() {
+        // Command A: path = ["workspace"] with --json
+        // Command B: path = ["workspace", "run"] with --verbose
+        // After typing "workspace", only A's path is complete.
+        // B's --verbose should NOT be suggested.
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["workspace".to_string()],
+                components: vec![
+                    Component::Option(OptionSpec::boolean("--json")),
+                ],
+                ..Default::default()
+            },
+            CommandSpec {
+                primary_path: vec!["workspace".to_string(), "run".to_string()],
+                components: vec![
+                    Component::Option(OptionSpec::boolean("--verbose")),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        // `workspace --<TAB>` — only "workspace" command's path is complete
+        let context = CompletionContext::new(vec!["workspace"], "--");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+
+        assert!(texts.contains(&"--json"), "complete command's options should appear, got: {:?}", texts);
+        assert!(!texts.contains(&"--verbose"), "incomplete path command's options should NOT appear, got: {:?}", texts);
+
+        // `workspace run --<TAB>` — now both paths are complete
+        let context = CompletionContext::new(vec!["workspace", "run"], "--");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+
+        assert!(texts.contains(&"--verbose"), "after full path, options should appear, got: {:?}", texts);
     }
 
     #[test]
