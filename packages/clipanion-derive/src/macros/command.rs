@@ -471,6 +471,8 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                 .map(|lit| lit.value())
                 .unwrap_or_default();
 
+            let completer = positional_bag.take("completer");
+
             let field_name_upper = field.ident.as_ref().unwrap()
                 .to_string()
                 .to_uppercase();
@@ -496,6 +498,11 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     #field_ident: partial.#field_ident,
                 });
 
+                let completer_expr = match &completer {
+                    Some(expr) => quote! { Some(#expr) },
+                    None => quote! { None },
+                };
+
                 builder.push(quote! {
                     command_spec.components.push(clipanion::core::Component::Positional(clipanion::core::PositionalSpec::Dynamic {
                         name: #field_name_upper.to_string(),
@@ -504,6 +511,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                         extra_len: None,
                         is_prefix: #is_prefix,
                         is_proxy: #is_proxy,
+                        completer: #completer_expr,
                     }));
                 });
             } else {
@@ -548,6 +556,11 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                     false => (quote!{1}, quote!{Some(0)}),
                 };
 
+                let completer_expr = match &completer {
+                    Some(expr) => quote! { Some(#expr) },
+                    None => quote! { None },
+                };
+
                 builder.push(quote! {
                     command_spec.components.push(clipanion::core::Component::Positional(clipanion::core::PositionalSpec::Dynamic {
                         name: #field_name_upper.to_string(),
@@ -556,6 +569,7 @@ pub fn command_macro(args: TokenStream, mut input: DeriveInput) -> Result<TokenS
                         extra_len: #extra_len,
                         is_prefix: #is_prefix,
                         is_proxy: false,
+                        completer: #completer_expr,
                     }));
                 });
             }

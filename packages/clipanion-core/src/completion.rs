@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    builder::{Check, CommandSpec, Component, OptionSpec, Reducer, State},
+    builder::{Attachment, Check, CommandSpec, Component, OptionSpec, PositionalSpec, Reducer, State},
     runner::{Runner, RunnerState},
     shared::{Arg, ArgKey, ERROR_NODE_ID},
     Machine,
@@ -59,31 +59,23 @@ pub struct CompletionContext<'a> {
 
     /// The partial token being completed (empty if cursor is between tokens)
     pub current: &'a str,
-
-    /// Arguments after the current token
-    pub args_after: Vec<&'a str>,
-
-    /// Position of cursor within the current token (0 = beginning)
-    pub cursor_position: usize,
 }
 
 impl<'a> CompletionContext<'a> {
-    pub fn new(args_before: Vec<&'a str>, current: &'a str, args_after: Vec<&'a str>, cursor_position: usize) -> Self {
+    pub fn new(args_before: Vec<&'a str>, current: &'a str) -> Self {
         Self {
             args_before,
             current,
-            args_after,
-            cursor_position,
         }
     }
 
     /// Create a context from a full command line where the cursor is at the end
     pub fn from_args_at_end(args: Vec<&'a str>) -> Self {
         if args.is_empty() {
-            Self::new(vec![], "", vec![], 0)
+            Self::new(vec![], "")
         } else {
             let last_arg = args[args.len() - 1];
-            Self::new(args[..args.len() - 1].to_vec(), last_arg, vec![], last_arg.len())
+            Self::new(args[..args.len() - 1].to_vec(), last_arg)
         }
     }
 }
@@ -106,6 +98,18 @@ pub fn compute_completions<'cmds, 'args>(
 ) -> CompletionResult {
     // Run the machine with the arguments before the current token to get the current states
     let states = run_machine_partial(machine, &context.args_before);
+
+    // Check if any state has a complete path (has reached a command)
+    let has_complete_path = states.iter().any(|state| {
+        if state.node_id == ERROR_NODE_ID {
+            return false;
+        }
+        if let Some(cmd) = commands.get(state.context_id) {
+            state.keyword_count >= cmd.primary_path.len()
+        } else {
+            false
+        }
+    });
 
     // Now analyze each state to find valid completions
     let mut completions = BTreeSet::new();
@@ -135,47 +139,75 @@ pub fn compute_completions<'cmds, 'args>(
             }
         }
 
-        // Collect dynamic transitions (options)
-        for (check, _transition) in &node.dynamics {
-            if let Some(Check::IsOption(name)) = check {
-                // Don't suggest -- or -h/--help which are special
-                if *name == "--" || *name == "-h" || *name == "--help" {
-                    continue;
-                }
-
-                // Check if the current partial matches
-                if name.starts_with(context.current) {
-                    // Find the option spec to check if it's already used
-                    if let Some(cmd) = command {
-                        if let Some((component_id, opt)) = find_option_with_id_by_name(cmd, name) {
-                            // Skip options that are already used and don't accept multiple values
-                            let is_single_use = opt.min_len == 0 && opt.extra_len == Some(0);
-                            if is_single_use && used_option_ids.contains(&component_id) {
-                                continue;
-                            }
-
-                            let description = opt.documentation.as_ref()
-                                .map(|doc| doc.description.clone());
-
-                            let mut completion = Completion::new(*name).as_option();
-                            if let Some(desc) = description {
-                                completion = completion.with_description(desc);
-                            }
-                            completions.insert(completion);
+        // Collect dynamic transitions (options and positionals)
+        // Only suggest if at least one state has a complete path (reached a command)
+        if has_complete_path {
+            for (check, transition) in &node.dynamics {
+                match check {
+                    Some(Check::IsOption(name)) => {
+                        // Don't suggest -- or -h/--help which are special
+                        if *name == "--" || *name == "-h" || *name == "--help" {
+                            continue;
                         }
-                    } else {
-                        // No command context, just add the option
-                        completions.insert(Completion::new(*name).as_option());
+
+                        // Only suggest long options (--foo), not short options (-f)
+                        if !name.starts_with("--") {
+                            continue;
+                        }
+
+                        // Check if the current partial matches
+                        if name.starts_with(context.current) {
+                            // Find the option spec to check if it's already used
+                            if let Some(cmd) = command {
+                                if let Some((component_id, opt)) = find_option_with_id_by_name(cmd, name) {
+                                    // Skip options that are already used and don't accept multiple values
+                                    let is_single_use = opt.extra_len.is_some();
+                                    if is_single_use && used_option_ids.contains(&component_id) {
+                                        continue;
+                                    }
+
+                                    let description = opt.documentation.as_ref()
+                                        .map(|doc| doc.description.clone());
+
+                                    let mut completion = Completion::new(*name).as_option();
+                                    if let Some(desc) = description {
+                                        completion = completion.with_description(desc);
+                                    }
+                                    completions.insert(completion);
+                                }
+                            } else {
+                                // No command context, just add the option
+                                completions.insert(Completion::new(*name).as_option());
+                            }
+                        }
                     }
+
+                    Some(Check::IsNotOptionLike) | None => {
+                        // Positional argument — invoke completer if available
+                        if let Some(cmd) = command {
+                            let component_id = match &transition.reducer {
+                                Some(Reducer::StartValue(Attachment::Positional, id)) => Some(*id),
+                                Some(Reducer::PushValue(Attachment::Positional)) => {
+                                    state.positional_values.last().map(|(id, _)| *id)
+                                }
+                                _ => None,
+                            };
+
+                            if let Some(id) = component_id {
+                                if let Some(Component::Positional(PositionalSpec::Dynamic { completer: Some(f), .. })) = cmd.components.get(id) {
+                                    for c in f(context.current) {
+                                        completions.insert(c);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    _ => {}
                 }
             }
         }
 
-        // If current starts with -, filter to only options
-        if !context.current.is_empty() && context.current.starts_with("-") && !state.post_double_dash {
-            // Only show options
-            completions.retain(|c| c.is_option);
-        }
     }
 
     CompletionResult {
@@ -243,6 +275,20 @@ impl Shell {
     }
 }
 
+/// Returns the environment variable name used to signal that completions are enabled.
+/// Derived from the binary name (e.g. `my-cli` → `_MY_CLI_COMPLETIONS`).
+pub fn completion_env_var(binary_name: &str) -> String {
+    let sanitized: String = binary_name.chars()
+        .map(|c| if c.is_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+        .collect();
+    format!("_{}_COMPLETIONS", sanitized)
+}
+
+/// Returns `true` if the completion script has been sourced in the current shell session.
+pub fn is_completion_enabled(binary_name: &str) -> bool {
+    std::env::var(completion_env_var(binary_name)).is_ok()
+}
+
 fn generate_bash_script(command: &str) -> String {
     // Extract the binary name from the command (last path component, no arguments)
     let binary_name = command
@@ -253,10 +299,14 @@ fn generate_bash_script(command: &str) -> String {
         .next()
         .unwrap_or(command);
 
+    let env_var = completion_env_var(binary_name);
+
     format!(
         r#"# Bash completion script for {binary_name}
 # Generated by clipanion-rs
 # Add this to your ~/.bashrc or source it directly
+
+export {env_var}=1
 
 _{binary_name}_completions() {{
     local cur prev words cword
@@ -269,13 +319,17 @@ _{binary_name}_completions() {{
     completions=$({command} --clipanion-complete "$index" -- "${{words[@]:1}}" 2>/dev/null)
 
     if [[ -n "$completions" ]]; then
-        COMPREPLY=($(compgen -W "$completions" -- "$cur"))
+        # Strip descriptions (tab-separated) since bash doesn't support them
+        local words_only
+        words_only=$(echo "$completions" | cut -f1)
+        COMPREPLY=($(compgen -W "$words_only" -- "$cur"))
     fi
 }}
 
 complete -F _{binary_name}_completions {binary_name}
 "#,
         binary_name = binary_name,
+        env_var = env_var,
         command = command,
     )
 }
@@ -291,11 +345,14 @@ fn generate_zsh_script(command: &str) -> String {
 
     // Replace hyphens with underscores for valid zsh function name
     let func_name = binary_name.replace('-', "_");
+    let env_var = completion_env_var(binary_name);
 
     format!(
         r#"# Zsh completion script for {binary_name}
 # Generated by clipanion-rs
 # Add this to your ~/.zshrc or place in a file in your $fpath
+
+export {env_var}=1
 
 _{func_name}() {{
     local -a completions
@@ -304,20 +361,27 @@ _{func_name}() {{
     # CURRENT is 1-based and includes command name, convert to 0-based index without command
     local index=$((CURRENT - 2))
 
-    # Get completions from the CLI
+    # Get completions from the CLI (format: text or text\tdescription)
     while IFS= read -r line; do
-        completions+=("$line")
+        if [[ "$line" == *$'\t'* ]]; then
+            local text="${{line%%$'\t'*}}"
+            local desc="${{line#*$'\t'}}"
+            completions+=("${{text}}:${{desc}}")
+        else
+            completions+=("$line")
+        fi
     done < <({command} --clipanion-complete "$index" -- "${{words[@]:1}}" 2>/dev/null)
 
-    # Add completions
+    # Add completions with descriptions
     if (( $#completions )); then
-        compadd -a completions
+        _describe 'completion' completions
     fi
 }}
 
 compdef _{func_name} {binary_name}
 "#,
         binary_name = binary_name,
+        env_var = env_var,
         func_name = func_name,
         command = command,
     )
@@ -332,10 +396,14 @@ fn generate_fish_script(command: &str) -> String {
         .next()
         .unwrap_or(command);
 
+    let env_var = completion_env_var(binary_name);
+
     format!(
         r#"# Fish completion script for {binary_name}
 # Generated by clipanion-rs
 # Save this file to ~/.config/fish/completions/{binary_name}.fish
+
+set -gx {env_var} 1
 
 function __fish_{binary_name}_completions
     set -l tokens (commandline -opc)
@@ -344,12 +412,13 @@ function __fish_{binary_name}_completions
     # Remove the command name itself (first token)
     set -e tokens[1]
 
-    # Count tokens to get the index (current token position)
+    # commandline -opc already includes the partial token at cursor,
+    # so don't append commandline -ct again.
+    # When current is empty, cursor is after a space (new argument position).
+    # When current is non-empty, it's the last element of tokens.
     set -l index (count $tokens)
-
-    # Add the current token to the args if it's not empty
     if test -n "$current"
-        set tokens $tokens "$current"
+        set index (math $index - 1)
     end
 
     {command} --clipanion-complete "$index" -- $tokens 2>/dev/null
@@ -358,6 +427,7 @@ end
 complete -c {binary_name} -f -a '(__fish_{binary_name}_completions)'
 "#,
         binary_name = binary_name,
+        env_var = env_var,
         command = command,
     )
 }
@@ -407,7 +477,7 @@ mod tests {
         let machine = builder.compile();
 
         let command_refs: Vec<&CommandSpec> = specs.iter().collect();
-        let context = CompletionContext::new(vec![], "", vec![], 0);
+        let context = CompletionContext::new(vec![], "");
         let result = compute_completions(&command_refs, &machine, &context);
 
         // Should suggest command paths
@@ -427,7 +497,7 @@ mod tests {
         let machine = builder.compile();
 
         let command_refs: Vec<&CommandSpec> = specs.iter().collect();
-        let context = CompletionContext::new(vec![], "co", vec![], 2);
+        let context = CompletionContext::new(vec![], "co");
         let result = compute_completions(&command_refs, &machine, &context);
 
         // Should only suggest commands starting with "co" (commit, not checkout which starts with "ch")
@@ -447,14 +517,14 @@ mod tests {
         let machine = builder.compile();
 
         let command_refs: Vec<&CommandSpec> = specs.iter().collect();
-        let context = CompletionContext::new(vec!["add"], "-", vec![], 1);
+        let context = CompletionContext::new(vec!["add"], "-");
         let result = compute_completions(&command_refs, &machine, &context);
 
-        // Should suggest options for 'add' command
+        // Should suggest long options for 'add' command (short options are filtered out)
         let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
-        assert!(texts.contains(&"-v"));
+        assert!(!texts.contains(&"-v")); // Short options filtered out
         assert!(texts.contains(&"--verbose"));
-        assert!(texts.contains(&"-m"));
+        assert!(!texts.contains(&"-m")); // Short options filtered out
         assert!(texts.contains(&"--message"));
     }
 
@@ -468,7 +538,7 @@ mod tests {
         let machine = builder.compile();
 
         let command_refs: Vec<&CommandSpec> = specs.iter().collect();
-        let context = CompletionContext::new(vec!["add"], "--v", vec![], 3);
+        let context = CompletionContext::new(vec!["add"], "--v");
         let result = compute_completions(&command_refs, &machine, &context);
 
         // Should only suggest --verbose
@@ -508,14 +578,38 @@ mod tests {
         let command_refs: Vec<&CommandSpec> = specs.iter().collect();
 
         // After using --verbose, it should not be suggested again
-        let context = CompletionContext::new(vec!["add", "--verbose"], "-", vec![], 1);
+        let context = CompletionContext::new(vec!["add", "--verbose"], "-");
         let result = compute_completions(&command_refs, &machine, &context);
 
         let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
-        assert!(!texts.contains(&"--verbose")); // Should be filtered out
-        assert!(!texts.contains(&"-v")); // Alias should also be filtered out
-        assert!(texts.contains(&"-m")); // Other options should still be available
-        assert!(texts.contains(&"--message"));
+        assert!(!texts.contains(&"--verbose")); // Should be filtered out (already used)
+        assert!(!texts.contains(&"-v")); // Short options are filtered out
+        assert!(!texts.contains(&"-m")); // Short options are filtered out
+        assert!(texts.contains(&"--message")); // Other long options should still be available
+    }
+
+    #[test]
+    fn test_no_options_when_path_incomplete() {
+        let specs = create_simple_cli();
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        // When no command has been typed yet, options should not be suggested
+        // even if the current token looks like an option
+        let context = CompletionContext::new(vec![], "-");
+        let result = compute_completions(&command_refs, &machine, &context);
+
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        // Should only have command paths, no options
+        assert!(!texts.contains(&"-v"));
+        assert!(!texts.contains(&"--verbose"));
+        assert!(!texts.contains(&"-m"));
+        assert!(!texts.contains(&"--message"));
     }
 
     #[test]
@@ -541,7 +635,7 @@ mod tests {
         assert!(script.contains("compdef _my_cli my-cli")); // Function name has underscores
         assert!(script.contains("--clipanion-complete"));
         assert!(script.contains("-- \"${words[@]:1}\"")); // Uses -- separator
-        assert!(script.contains("compadd -a completions")); // Uses compadd
+        assert!(script.contains("_describe 'completion' completions")); // Uses _describe for descriptions
     }
 
     #[test]
@@ -557,5 +651,156 @@ mod tests {
         let script = generate_completion_script(Shell::Bash, "/usr/local/bin/my-cli");
         // Should extract binary name from path
         assert!(script.contains("complete -F _my-cli_completions my-cli"));
+    }
+
+    fn branch_completer(current: &str) -> Vec<Completion> {
+        let branches = vec!["main", "develop", "feature/login", "feature/search"];
+        branches.into_iter()
+            .filter(|b| b.starts_with(current))
+            .map(|b| Completion::new(b))
+            .collect()
+    }
+
+    #[test]
+    fn test_positional_completer() {
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["checkout".to_string()],
+                components: vec![
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "BRANCH".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: Some(0),
+                        is_prefix: false,
+                        is_proxy: false,
+                        completer: Some(branch_completer),
+                    }),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        // Complete with empty input after "checkout"
+        let context = CompletionContext::new(vec!["checkout"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"main"));
+        assert!(texts.contains(&"develop"));
+        assert!(texts.contains(&"feature/login"));
+        assert!(texts.contains(&"feature/search"));
+
+        // Complete with partial input
+        let context = CompletionContext::new(vec!["checkout"], "fe");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(!texts.contains(&"main"));
+        assert!(!texts.contains(&"develop"));
+        assert!(texts.contains(&"feature/login"));
+        assert!(texts.contains(&"feature/search"));
+    }
+
+    #[test]
+    fn test_positional_without_completer() {
+        // Positionals without a completer should produce no positional completions
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["checkout".to_string()],
+                components: vec![
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "BRANCH".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: Some(0),
+                        is_prefix: false,
+                        is_proxy: false,
+                        completer: None,
+                    }),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        let context = CompletionContext::new(vec!["checkout"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        assert!(result.completions.is_empty());
+    }
+
+    fn script_completer(current: &str) -> Vec<Completion> {
+        let scripts = vec!["build", "test", "lint", "start"];
+        scripts.into_iter()
+            .filter(|s| s.starts_with(current))
+            .map(|s| Completion::new(s))
+            .collect()
+    }
+
+    #[test]
+    fn test_proxy_positional_completer() {
+        // A proxy positional captures all remaining args (including option-like ones).
+        // Its completer should still be invoked.
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["run".to_string()],
+                components: vec![
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "SCRIPT".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: None,
+                        is_prefix: false,
+                        is_proxy: true,
+                        completer: Some(script_completer),
+                    }),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        // Complete first proxy arg
+        let context = CompletionContext::new(vec!["run"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"build"));
+        assert!(texts.contains(&"test"));
+        assert!(texts.contains(&"lint"));
+        assert!(texts.contains(&"start"));
+
+        // Complete with partial input
+        let context = CompletionContext::new(vec!["run"], "t");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"test"));
+        assert!(!texts.contains(&"build"));
+
+        // Complete subsequent proxy arg (should still invoke completer via PushValue)
+        let context = CompletionContext::new(vec!["run", "test"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"build"));
+        assert!(texts.contains(&"test"));
     }
 }

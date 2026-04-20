@@ -1,6 +1,7 @@
 use std::process::ExitCode;
 
 use clipanion::prelude::*;
+use clipanion::core::Completion;
 
 /// Add file contents to the index.
 ///
@@ -55,6 +56,38 @@ struct GitBranchCommand {
 impl GitBranchCommand {
     async fn execute(&self) {
         println!("Verbose: {}", self.verbose);
+    }
+}
+
+fn complete_branch(current: &str) -> Vec<Completion> {
+    // In a real CLI, this would call `git branch --list` or similar.
+    let branches = ["main", "develop", "feature/login", "feature/search", "fix/typo"];
+    branches.iter()
+        .filter(|b| b.starts_with(current))
+        .map(|b| Completion::new(*b))
+        .collect()
+}
+
+/// Switch branches or restore working tree files.
+#[cli::command]
+#[cli::path("checkout")]
+struct GitCheckoutCommand {
+    /// Create and checkout a new branch.
+    #[cli::option("-b", default = false)]
+    new_branch: bool,
+
+    /// The branch to checkout.
+    #[cli::positional(completer = complete_branch)]
+    branch: Option<String>,
+}
+
+impl GitCheckoutCommand {
+    async fn execute(&self) {
+        if self.new_branch {
+            println!("Creating and switching to branch {:?}", self.branch);
+        } else {
+            println!("Switching to branch {:?}", self.branch);
+        }
     }
 }
 
@@ -190,6 +223,7 @@ impl GitConfigSetCommand {
 enum MyCli {
     GitAdd(GitAddCommand),
     GitBranch(GitBranchCommand),
+    GitCheckout(GitCheckoutCommand),
     GitCommit(GitCommitCommand),
     GitConfigGet(GitConfigGetCommand),
     GitConfigList(GitConfigListCommand),

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, future::Future};
 
-use clipanion_core::{BuiltinCommand, CliBuilder, CompletionContext, Info, SelectionResult, Shell, compute_completions, generate_completion_script};
+use clipanion_core::{BuiltinCommand, CliBuilder, CompletionContext, Info, SelectionResult, Shell, compute_completions, generate_completion_script, is_completion_enabled};
 
 use crate::{details::{CliEnums, CommandExecutor, CommandExecutorAsync, CommandProvider}, format::{write_color, write_fading_title_line, Formatter}};
 
@@ -223,6 +223,15 @@ fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuil
                 }
             }
 
+            if !is_completion_enabled(&env.info.binary_name) {
+                output_string.push('\n');
+                write_color(&mut output_string, (128, 128, 128));
+                output_string.push_str(&format!(
+                    "Tip: Shell completions are available. Run `{} --clipanion-completion-script` to generate the setup script.\x1b[0m\n",
+                    env.info.binary_name,
+                ));
+            }
+
             print!("{}", output_string);
 
             Ok(std::process::ExitCode::SUCCESS)
@@ -256,25 +265,26 @@ fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuil
             let commands = S::registered_commands()?;
             let machine = builder.compile();
 
-            // Convert index + args into before/current/after
-            let (before, current, after) = if args.is_empty() {
-                (vec![], "", vec![])
+            // Convert index + args into before/current
+            let (before, current) = if args.is_empty() {
+                (vec![], "")
             } else if index >= args.len() {
                 // Cursor is after all args (completing a new argument)
-                (args.iter().map(|s| *s).collect(), "", vec![])
+                (args.iter().map(|s| *s).collect(), "")
             } else {
-                let before: Vec<&str> = args[..index].to_vec();
-                let current = args[index];
-                let after: Vec<&str> = args[index + 1..].to_vec();
-                (before, current, after)
+                (args[..index].to_vec(), args[index])
             };
 
-            let context = CompletionContext::new(before, current, after, current.len());
+            let context = CompletionContext::new(before, current);
             let result = compute_completions(&commands, &machine, &context);
 
-            // Output completions, one per line (simple format for shell consumption)
+            // Output completions, one per line (tab-separated with description if available)
             for completion in result.completions {
-                println!("{}", completion.text);
+                if let Some(desc) = &completion.description {
+                    println!("{}\t{}", completion.text, desc);
+                } else {
+                    println!("{}", completion.text);
+                }
             }
 
             Ok(std::process::ExitCode::SUCCESS)

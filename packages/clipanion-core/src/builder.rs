@@ -386,7 +386,7 @@ impl<'args> DeriveState<'args, State<'args>> for Reducer {
 type Machine<'cmds>
     = machine::Machine<'cmds, Option<Check<'cmds>>, Option<Reducer>>;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase", tag = "positionalType"))]
 #[cfg_attr(feature = "serde", derive(ts_rs::TS))]
@@ -405,8 +405,26 @@ pub enum PositionalSpec {
 
         is_prefix: bool,
         is_proxy: bool,
+
+        #[cfg_attr(feature = "serde", serde(skip))]
+        completer: Option<fn(&str) -> Vec<crate::completion::Completion>>,
     },
 }
+
+impl PartialEq for PositionalSpec {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (PositionalSpec::Keyword { expected: a }, PositionalSpec::Keyword { expected: b }) => a == b,
+            (
+                PositionalSpec::Dynamic { name: a_name, documentation: a_doc, min_len: a_min, extra_len: a_extra, is_prefix: a_prefix, is_proxy: a_proxy, .. },
+                PositionalSpec::Dynamic { name: b_name, documentation: b_doc, min_len: b_min, extra_len: b_extra, is_prefix: b_prefix, is_proxy: b_proxy, .. },
+            ) => a_name == b_name && a_doc == b_doc && a_min == b_min && a_extra == b_extra && a_prefix == b_prefix && a_proxy == b_proxy,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for PositionalSpec {}
 
 fn format_range(f: &mut std::fmt::Formatter<'_>, name: &str, min_len: usize, extra_len: Option<usize>) -> std::fmt::Result {
     if min_len > 0 {
@@ -478,6 +496,7 @@ impl PositionalSpec {
 
             is_prefix: false,
             is_proxy: false,
+            completer: None,
         }
     }
 
@@ -492,6 +511,7 @@ impl PositionalSpec {
 
             is_prefix: false,
             is_proxy: false,
+            completer: None,
         }
     }
 
@@ -506,6 +526,7 @@ impl PositionalSpec {
 
             is_prefix: false,
             is_proxy: false,
+            completer: None,
         }
     }
 
@@ -520,6 +541,7 @@ impl PositionalSpec {
 
             is_prefix: false,
             is_proxy: true,
+            completer: None,
         }
     }
 }
