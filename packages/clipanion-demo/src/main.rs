@@ -61,7 +61,9 @@ impl GitBranchCommand {
 
 fn complete_branch(ctx: &CompletionContext) -> Vec<Completion> {
     // In a real CLI, this would call `git branch --list` or similar.
-    let branches = ["main", "develop", "feature/login", "feature/search", "fix/typo"];
+    let branches
+        = ["main", "develop", "feature/login", "feature/search", "fix/typo"];
+
     branches.iter()
         .filter(|b| b.starts_with(ctx.current))
         .map(|b| Completion::new(*b))

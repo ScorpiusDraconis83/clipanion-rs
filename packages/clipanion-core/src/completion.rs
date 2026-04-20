@@ -74,7 +74,8 @@ impl<'a> CompletionContext<'a> {
         if args.is_empty() {
             Self::new(vec![], "")
         } else {
-            let last_arg = args[args.len() - 1];
+            let last_arg
+                = args[args.len() - 1];
             Self::new(args[..args.len() - 1].to_vec(), last_arg)
         }
     }
@@ -97,39 +98,45 @@ pub fn compute_completions<'cmds, 'args>(
     context: &CompletionContext<'args>,
 ) -> CompletionResult {
     // Run the machine with the arguments before the current token to get the current states
-    let states = run_machine_partial(machine, &context.args_before);
+    let states
+        = run_machine_partial(machine, &context.args_before);
 
     // Now analyze each state to find valid completions
     // Use a BTreeMap keyed by text so that entries with descriptions
     // take precedence over bare entries for the same keyword.
-    let mut completions: BTreeMap<String, Completion> = BTreeMap::new();
+    let mut completions: BTreeMap<String, Completion>
+        = BTreeMap::new();
 
     for state in &states {
         if state.node_id == ERROR_NODE_ID {
             continue;
         }
 
-        let node = &machine.nodes[state.node_id];
-        let command = commands.get(state.context_id);
+        let node
+            = &machine.nodes[state.node_id];
+        let command
+            = commands.get(state.context_id);
 
         // Build a set of already-used option component IDs
-        let used_option_ids: std::collections::HashSet<usize> = state
-            .option_values
-            .iter()
-            .map(|(id, _)| *id)
-            .collect();
+        let used_option_ids: std::collections::HashSet<usize>
+            = state.option_values.iter()
+                .map(|(id, _)| *id)
+                .collect();
 
         // Collect static transitions (command paths, keywords)
         for (key, _transitions) in &node.statics {
             if let ArgKey::User(keyword) = key {
                 // Check if the current partial matches
                 if keyword.starts_with(context.current) {
-                    let mut completion = Completion::new(*keyword).as_path();
+                    let mut completion
+                        = Completion::new(*keyword).as_path();
 
                     // If this keyword is the last segment of the command's path,
                     // attach the command's description.
                     if let Some(cmd) = command {
-                        let idx = state.keyword_count;
+                        let idx
+                            = state.keyword_count;
+
                         let is_last_segment = |path: &[String]| {
                             idx + 1 == path.len()
                                 && path.get(idx).map_or(false, |s| s.as_str() == *keyword)
@@ -151,16 +158,18 @@ pub fn compute_completions<'cmds, 'args>(
 
         // Collect dynamic transitions (options and positionals)
         // Only suggest if this specific state's command has a complete path
-        let state_has_complete_path = if let Some(cmd) = command {
-            state.keyword_count >= cmd.primary_path.len()
-        } else {
-            false
-        };
+        let state_has_complete_path
+            = if let Some(cmd) = command {
+                state.keyword_count >= cmd.primary_path.len()
+            } else {
+                false
+            };
 
         if state_has_complete_path {
             // Collect matching option completions for this state first, then
             // only include undescribed options when no described option matches.
-            let mut option_candidates: Vec<Completion> = Vec::new();
+            let mut option_candidates: Vec<Completion>
+                = Vec::new();
 
             for (check, _) in &node.dynamics {
                 if let Some(Check::IsOption(name)) = check {
@@ -178,12 +187,16 @@ pub fn compute_completions<'cmds, 'args>(
                     if name.starts_with(context.current) {
                         if let Some(cmd) = command {
                             if let Some((component_id, opt)) = find_option_with_id_by_name(cmd, name) {
-                                let is_single_use = opt.extra_len.is_some();
+                                let is_single_use
+                                    = opt.extra_len.is_some();
+
                                 if is_single_use && used_option_ids.contains(&component_id) {
                                     continue;
                                 }
 
-                                let mut completion = Completion::new(*name).as_option();
+                                let mut completion
+                                    = Completion::new(*name).as_option();
+
                                 if let Some(doc) = &opt.documentation {
                                     completion = completion.with_description(doc.description.clone());
                                 }
@@ -196,7 +209,9 @@ pub fn compute_completions<'cmds, 'args>(
                 }
             }
 
-            let has_any_described = option_candidates.iter().any(|c| c.description.is_some());
+            let has_any_described
+                = option_candidates.iter().any(|c| c.description.is_some());
+
             for c in option_candidates {
                 if !has_any_described || c.description.is_some() {
                     insert_completion(&mut completions, c);
@@ -208,24 +223,27 @@ pub fn compute_completions<'cmds, 'args>(
                     Some(Check::IsNotOptionLike) | None => {
                         // Positional argument — invoke completer if available
                         if let Some(cmd) = command {
-                            let component_id = match &transition.reducer {
-                                Some(Reducer::StartValue(Attachment::Positional, id)) => Some(*id),
-                                Some(Reducer::PushValue(Attachment::Positional)) => {
-                                    state.positional_values.last().map(|(id, _)| *id)
-                                }
-                                _ => None,
-                            };
+                            let component_id
+                                = match &transition.reducer {
+                                    Some(Reducer::StartValue(Attachment::Positional, id)) => Some(*id),
+                                    Some(Reducer::PushValue(Attachment::Positional)) => {
+                                        state.positional_values.last().map(|(id, _)| *id)
+                                    }
+                                    _ => None,
+                                };
 
                             if let Some(id) = component_id {
                                 if let Some(Component::Positional(PositionalSpec::Dynamic { completer: Some(f), .. })) = cmd.components.get(id) {
                                     // Build a context local to this positional: only include
                                     // values already consumed by this specific component.
-                                    let positional_args: Vec<&str> = state.positional_values.iter()
-                                        .filter(|(cid, _)| *cid == id)
-                                        .flat_map(|(_, values)| values.iter().map(|v| v.value))
-                                        .collect();
+                                    let positional_args: Vec<&str>
+                                        = state.positional_values.iter()
+                                            .filter(|(cid, _)| *cid == id)
+                                            .flat_map(|(_, values)| values.iter().map(|v| v.value))
+                                            .collect();
 
-                                    let local_context = CompletionContext::new(positional_args, context.current);
+                                    let local_context
+                                        = CompletionContext::new(positional_args, context.current);
 
                                     for c in f(&local_context) {
                                         insert_completion(&mut completions, c);
@@ -315,7 +333,8 @@ impl Shell {
         std::env::var("SHELL")
             .ok()
             .and_then(|s| {
-                let shell_name = s.rsplit('/').next()?;
+                let shell_name
+                    = s.rsplit('/').next()?;
                 Self::from_str(shell_name)
             })
     }
@@ -324,9 +343,11 @@ impl Shell {
 /// Returns the environment variable name used to signal that completions are enabled.
 /// Derived from the binary name (e.g. `my-cli` → `_MY_CLI_COMPLETIONS`).
 pub fn completion_env_var(binary_name: &str) -> String {
-    let sanitized: String = binary_name.chars()
-        .map(|c| if c.is_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
-        .collect();
+    let sanitized: String
+        = binary_name.chars()
+            .map(|c| if c.is_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+            .collect();
+
     format!("_{}_COMPLETIONS", sanitized)
 }
 
@@ -337,15 +358,17 @@ pub fn is_completion_enabled(binary_name: &str) -> bool {
 
 fn generate_bash_script(command: &str) -> String {
     // Extract the binary name from the command (last path component, no arguments)
-    let binary_name = command
-        .split_whitespace()
-        .next()
-        .unwrap_or(command)
-        .rsplit('/')
-        .next()
-        .unwrap_or(command);
+    let binary_name
+        = command
+            .split_whitespace()
+            .next()
+            .unwrap_or(command)
+            .rsplit('/')
+            .next()
+            .unwrap_or(command);
 
-    let env_var = completion_env_var(binary_name);
+    let env_var
+        = completion_env_var(binary_name);
 
     format!(
         r#"# Bash completion script for {binary_name}
@@ -381,17 +404,20 @@ complete -F _{binary_name}_completions {binary_name}
 }
 
 fn generate_zsh_script(command: &str) -> String {
-    let binary_name = command
-        .split_whitespace()
-        .next()
-        .unwrap_or(command)
-        .rsplit('/')
-        .next()
-        .unwrap_or(command);
+    let binary_name
+        = command
+            .split_whitespace()
+            .next()
+            .unwrap_or(command)
+            .rsplit('/')
+            .next()
+            .unwrap_or(command);
 
     // Replace hyphens with underscores for valid zsh function name
-    let func_name = binary_name.replace('-', "_");
-    let env_var = completion_env_var(binary_name);
+    let func_name
+        = binary_name.replace('-', "_");
+    let env_var
+        = completion_env_var(binary_name);
 
     format!(
         r#"# Zsh completion script for {binary_name}
@@ -434,15 +460,17 @@ compdef _{func_name} {binary_name}
 }
 
 fn generate_fish_script(command: &str) -> String {
-    let binary_name = command
-        .split_whitespace()
-        .next()
-        .unwrap_or(command)
-        .rsplit('/')
-        .next()
-        .unwrap_or(command);
+    let binary_name
+        = command
+            .split_whitespace()
+            .next()
+            .unwrap_or(command)
+            .rsplit('/')
+            .next()
+            .unwrap_or(command);
 
-    let env_var = completion_env_var(binary_name);
+    let env_var
+        = completion_env_var(binary_name);
 
     format!(
         r#"# Fish completion script for {binary_name}
@@ -515,19 +543,30 @@ mod tests {
 
     #[test]
     fn test_complete_empty_input() {
-        let specs = create_simple_cli();
-        let mut builder = CliBuilder::new();
+        let specs
+            = create_simple_cli();
+
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
 
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
-        let context = CompletionContext::new(vec![], "");
-        let result = compute_completions(&command_refs, &machine, &context);
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
+        let context
+            = CompletionContext::new(vec![], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
 
         // Should suggest command paths
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"add"));
         assert!(texts.contains(&"commit"));
         assert!(texts.contains(&"checkout"));
@@ -535,19 +574,30 @@ mod tests {
 
     #[test]
     fn test_complete_partial_command() {
-        let specs = create_simple_cli();
-        let mut builder = CliBuilder::new();
+        let specs
+            = create_simple_cli();
+
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
 
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
-        let context = CompletionContext::new(vec![], "co");
-        let result = compute_completions(&command_refs, &machine, &context);
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
+        let context
+            = CompletionContext::new(vec![], "co");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
 
         // Should only suggest commands starting with "co" (commit, not checkout which starts with "ch")
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"commit"));
         assert!(!texts.contains(&"checkout")); // checkout starts with "ch", not "co"
         assert!(!texts.contains(&"add"));
@@ -555,19 +605,30 @@ mod tests {
 
     #[test]
     fn test_complete_options_after_command() {
-        let specs = create_simple_cli();
-        let mut builder = CliBuilder::new();
+        let specs
+            = create_simple_cli();
+
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
 
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
-        let context = CompletionContext::new(vec!["add"], "-");
-        let result = compute_completions(&command_refs, &machine, &context);
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
+        let context
+            = CompletionContext::new(vec!["add"], "-");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
 
         // Should suggest long options for 'add' command (short options are filtered out)
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(!texts.contains(&"-v")); // Short options filtered out
         assert!(texts.contains(&"--verbose"));
         assert!(!texts.contains(&"-m")); // Short options filtered out
@@ -576,58 +637,91 @@ mod tests {
 
     #[test]
     fn test_complete_long_option_prefix() {
-        let specs = create_simple_cli();
-        let mut builder = CliBuilder::new();
+        let specs
+            = create_simple_cli();
+
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
 
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
-        let context = CompletionContext::new(vec!["add"], "--v");
-        let result = compute_completions(&command_refs, &machine, &context);
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
+        let context
+            = CompletionContext::new(vec!["add"], "--v");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
 
         // Should only suggest --verbose
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"--verbose"));
         assert!(!texts.contains(&"--message"));
     }
 
     #[test]
     fn test_complete_from_args_at_end() {
-        let specs = create_simple_cli();
-        let mut builder = CliBuilder::new();
+        let specs
+            = create_simple_cli();
+
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
 
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
-        let context = CompletionContext::from_args_at_end(vec!["add", "--"]);
-        let result = compute_completions(&command_refs, &machine, &context);
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
+        let context
+            = CompletionContext::from_args_at_end(vec!["add", "--"]);
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
 
         // Should suggest long options
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"--verbose"));
         assert!(texts.contains(&"--message"));
     }
 
     #[test]
     fn test_filter_already_used_options() {
-        let specs = create_simple_cli();
-        let mut builder = CliBuilder::new();
+        let specs
+            = create_simple_cli();
+
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
 
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // After using --verbose, it should not be suggested again
-        let context = CompletionContext::new(vec!["add", "--verbose"], "-");
-        let result = compute_completions(&command_refs, &machine, &context);
+        let context
+            = CompletionContext::new(vec!["add", "--verbose"], "-");
 
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(!texts.contains(&"--verbose")); // Should be filtered out (already used)
         assert!(!texts.contains(&"-v")); // Short options are filtered out
         assert!(!texts.contains(&"-m")); // Short options are filtered out
@@ -636,21 +730,32 @@ mod tests {
 
     #[test]
     fn test_no_options_when_path_incomplete() {
-        let specs = create_simple_cli();
-        let mut builder = CliBuilder::new();
+        let specs
+            = create_simple_cli();
+
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
 
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // When no command has been typed yet, options should not be suggested
         // even if the current token looks like an option
-        let context = CompletionContext::new(vec![], "-");
-        let result = compute_completions(&command_refs, &machine, &context);
+        let context
+            = CompletionContext::new(vec![], "-");
 
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         // Should only have command paths, no options
         assert!(!texts.contains(&"-v"));
         assert!(!texts.contains(&"--verbose"));
@@ -687,30 +792,52 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // Top-level: single-segment commands get their description
-        let context = CompletionContext::new(vec![], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let add = result.completions.iter().find(|c| c.text == "add").unwrap();
+        let context
+            = CompletionContext::new(vec![], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+
+        let add
+            = result.completions.iter().find(|c| c.text == "add").unwrap();
         assert_eq!(add.description.as_deref(), Some("Add files to staging"));
-        let commit = result.completions.iter().find(|c| c.text == "commit").unwrap();
+
+        let commit
+            = result.completions.iter().find(|c| c.text == "commit").unwrap();
         assert_eq!(commit.description.as_deref(), Some("Record changes"));
+
         // "workspace" is not a final segment, so no description
-        let workspace = result.completions.iter().find(|c| c.text == "workspace").unwrap();
+        let workspace
+            = result.completions.iter().find(|c| c.text == "workspace").unwrap();
         assert_eq!(workspace.description, None);
 
         // After "workspace": "run" and "list" are final segments and get descriptions
-        let context = CompletionContext::new(vec!["workspace"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let run = result.completions.iter().find(|c| c.text == "run").unwrap();
+        let context
+            = CompletionContext::new(vec!["workspace"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+
+        let run
+            = result.completions.iter().find(|c| c.text == "run").unwrap();
         assert_eq!(run.description.as_deref(), Some("Run a workspace script"));
-        let list = result.completions.iter().find(|c| c.text == "list").unwrap();
+
+        let list
+            = result.completions.iter().find(|c| c.text == "list").unwrap();
         assert_eq!(list.description.as_deref(), Some("List workspaces"));
     }
 
@@ -737,25 +864,39 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // `workspace --<TAB>` — only "workspace" command's path is complete
-        let context = CompletionContext::new(vec!["workspace"], "--");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["workspace"], "--");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
 
         assert!(texts.contains(&"--json"), "complete command's options should appear, got: {:?}", texts);
         assert!(!texts.contains(&"--verbose"), "incomplete path command's options should NOT appear, got: {:?}", texts);
 
         // `workspace run --<TAB>` — now both paths are complete
-        let context = CompletionContext::new(vec!["workspace", "run"], "--");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["workspace", "run"], "--");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
 
         assert!(texts.contains(&"--verbose"), "after full path, options should appear, got: {:?}", texts);
     }
@@ -771,7 +912,8 @@ mod tests {
 
     #[test]
     fn test_bash_script_generation() {
-        let script = generate_completion_script(Shell::Bash, "my-cli");
+        let script
+            = generate_completion_script(Shell::Bash, "my-cli");
         assert!(script.contains("complete -F _my-cli_completions my-cli"));
         assert!(script.contains("--clipanion-complete"));
         assert!(script.contains("-- \"${words[@]:1}\"")); // Uses -- separator
@@ -779,7 +921,8 @@ mod tests {
 
     #[test]
     fn test_zsh_script_generation() {
-        let script = generate_completion_script(Shell::Zsh, "my-cli");
+        let script
+            = generate_completion_script(Shell::Zsh, "my-cli");
         assert!(script.contains("compdef _my_cli my-cli")); // Function name has underscores
         assert!(script.contains("--clipanion-complete"));
         assert!(script.contains("-- \"${words[@]:1}\"")); // Uses -- separator
@@ -788,7 +931,8 @@ mod tests {
 
     #[test]
     fn test_fish_script_generation() {
-        let script = generate_completion_script(Shell::Fish, "my-cli");
+        let script
+            = generate_completion_script(Shell::Fish, "my-cli");
         assert!(script.contains("complete -c my-cli"));
         assert!(script.contains("--clipanion-complete"));
         assert!(script.contains("-- $tokens")); // Uses -- separator
@@ -796,13 +940,16 @@ mod tests {
 
     #[test]
     fn test_script_with_path_command() {
-        let script = generate_completion_script(Shell::Bash, "/usr/local/bin/my-cli");
+        let script
+            = generate_completion_script(Shell::Bash, "/usr/local/bin/my-cli");
         // Should extract binary name from path
         assert!(script.contains("complete -F _my-cli_completions my-cli"));
     }
 
     fn branch_completer(ctx: &CompletionContext) -> Vec<Completion> {
-        let branches = vec!["main", "develop", "feature/login", "feature/search"];
+        let branches
+            = vec!["main", "develop", "feature/login", "feature/search"];
+
         branches.into_iter()
             .filter(|b| b.starts_with(ctx.current))
             .map(|b| Completion::new(b))
@@ -829,27 +976,40 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
 
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // Complete with empty input after "checkout"
-        let context = CompletionContext::new(vec!["checkout"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["checkout"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"main"));
         assert!(texts.contains(&"develop"));
         assert!(texts.contains(&"feature/login"));
         assert!(texts.contains(&"feature/search"));
 
         // Complete with partial input
-        let context = CompletionContext::new(vec!["checkout"], "fe");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["checkout"], "fe");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(!texts.contains(&"main"));
         assert!(!texts.contains(&"develop"));
         assert!(texts.contains(&"feature/login"));
@@ -877,21 +1037,32 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
 
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+        let machine
+            = builder.compile();
 
-        let context = CompletionContext::new(vec!["checkout"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
+
+        let context
+            = CompletionContext::new(vec!["checkout"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+
         assert!(result.completions.is_empty());
     }
 
     fn script_completer(ctx: &CompletionContext) -> Vec<Completion> {
-        let scripts = vec!["build", "test", "lint", "start"];
+        let scripts
+            = vec!["build", "test", "lint", "start"];
+
         scripts.into_iter()
             .filter(|s| s.starts_with(ctx.current))
             .map(|s| Completion::new(s))
@@ -920,34 +1091,51 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
 
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // Complete first proxy arg
-        let context = CompletionContext::new(vec!["run"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"build"));
         assert!(texts.contains(&"test"));
         assert!(texts.contains(&"lint"));
         assert!(texts.contains(&"start"));
 
         // Complete with partial input
-        let context = CompletionContext::new(vec!["run"], "t");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run"], "t");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"test"));
         assert!(!texts.contains(&"build"));
 
         // Complete subsequent proxy arg (should still invoke completer via PushValue)
-        let context = CompletionContext::new(vec!["run", "test"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run", "test"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"build"));
         assert!(texts.contains(&"test"));
     }
@@ -956,10 +1144,13 @@ mod tests {
     /// that the engine slices the context correctly for proxy positionals.
     fn echo_context_completer(ctx: &CompletionContext) -> Vec<Completion> {
         // Return each prior arg as a completion, plus "current:<current>" to verify
-        let mut result: Vec<Completion> = ctx.args_before.iter()
-            .map(|a| Completion::new(format!("before:{}", a)))
-            .collect();
+        let mut result: Vec<Completion>
+            = ctx.args_before.iter()
+                .map(|a| Completion::new(format!("before:{}", a)))
+                .collect();
+
         result.push(Completion::new(format!("current:{}", ctx.current)));
+
         result
     }
 
@@ -984,34 +1175,52 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // First proxy arg: completer should see no prior args
         // Full command: `run <TAB>` → args_before for completer = []
-        let context = CompletionContext::new(vec!["run"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"current:"));
         assert!(!texts.iter().any(|t| t.starts_with("before:")));
 
         // Second proxy arg: completer should see only the first proxy arg
         // Full command: `run my-script <TAB>` → args_before for completer = ["my-script"]
-        let context = CompletionContext::new(vec!["run", "my-script"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run", "my-script"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"before:my-script"));
         assert!(texts.contains(&"current:"));
 
         // Third proxy arg with partial: completer should see two prior proxy args
         // Full command: `run my-script --foo --b` → args_before for completer = ["my-script", "--foo"]
-        let context = CompletionContext::new(vec!["run", "my-script", "--foo"], "--b");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run", "my-script", "--foo"], "--b");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"before:my-script"));
         assert!(texts.contains(&"before:--foo"));
         assert!(texts.contains(&"current:--b"));
@@ -1020,9 +1229,13 @@ mod tests {
         // 1. --verbose consumed as option → proxy sees ["my-script"]
         // 2. --verbose consumed as proxy arg → proxy sees ["--verbose", "my-script"]
         // Both parses contribute completions, so we see results from both.
-        let context = CompletionContext::new(vec!["run", "--verbose", "my-script"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run", "--verbose", "my-script"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"before:my-script"));
         assert!(texts.contains(&"current:"));
     }
@@ -1052,25 +1265,39 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // `run scripts <TAB>` — first proxy arg, completer should see no prior args
-        let context = CompletionContext::new(vec!["run", "scripts"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run", "scripts"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"current:"));
         assert!(!texts.iter().any(|t| t.starts_with("before:")),
             "keyword 'scripts' should not appear in proxy completer context, got: {:?}", texts);
 
         // `run scripts hello world <TAB>` — third proxy arg
-        let context = CompletionContext::new(vec!["run", "scripts", "hello", "world"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run", "scripts", "hello", "world"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"before:hello"));
         assert!(texts.contains(&"before:world"));
         assert!(!texts.iter().any(|t| *t == "before:scripts"),
@@ -1100,17 +1327,27 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // `run foo <TAB>` — proxy has started, no completer set
-        let context = CompletionContext::new(vec!["run", "foo"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run", "foo"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(!texts.contains(&"--verbose"),
             "options should not leak through proxy without completer");
         // The only completions might come from the non-proxy parse path (where
@@ -1159,17 +1396,27 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // `run foo <TAB>` — should only get run's proxy completions
-        let context = CompletionContext::new(vec!["run", "foo"], "");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run", "foo"], "");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"run-completion:"));
         assert!(!texts.contains(&"--release"),
             "build's options should not appear in run's proxy completions");
@@ -1200,17 +1447,27 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // `run --<TAB>` — no proxy arg yet, options should be suggested
-        let context = CompletionContext::new(vec!["run"], "--");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run"], "--");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"--verbose"));
         assert!(texts.contains(&"--output"));
     }
@@ -1238,18 +1495,28 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
-        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
 
         // `run test --some-flag --<TAB>` — proxy has started, option-like input
         // should be passed to the proxy completer, not matched as CLI options.
-        let context = CompletionContext::new(vec!["run", "test", "--some-flag"], "--");
-        let result = compute_completions(&command_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["run", "test", "--some-flag"], "--");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         // The echo completer should receive the option-like args as proxy context
         assert!(texts.contains(&"before:test"));
         assert!(texts.contains(&"before:--some-flag"));
@@ -1294,16 +1561,26 @@ mod tests {
 
         // Binary A's proxy completer: delegates to binary B's completion engine
         fn delegate_completer(ctx: &CompletionContext) -> Vec<Completion> {
-            let specs = inner_cli_specs();
-            let mut builder = CliBuilder::new();
+            let specs
+                = inner_cli_specs();
+
+            let mut builder
+                = CliBuilder::new();
+
             for spec in &specs {
                 builder.add_command(spec);
             }
-            let machine = builder.compile();
-            let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+            let machine
+                = builder.compile();
+
+            let command_refs: Vec<&CommandSpec>
+                = specs.iter().collect();
 
             // Forward the positional-local context directly to binary B's engine
-            let result = compute_completions(&command_refs, &machine, ctx);
+            let result
+                = compute_completions(&command_refs, &machine, ctx);
+
             result.completions
         }
 
@@ -1353,17 +1630,27 @@ mod tests {
             },
         ];
 
-        let mut builder = CliBuilder::new();
+        let mut builder
+            = CliBuilder::new();
+
         for spec in &outer_specs {
             builder.add_command(spec);
         }
-        let machine = builder.compile();
-        let outer_refs: Vec<&CommandSpec> = outer_specs.iter().collect();
+
+        let machine
+            = builder.compile();
+
+        let outer_refs: Vec<&CommandSpec>
+            = outer_specs.iter().collect();
 
         // `<TAB>` — top-level: should see all path keywords from binary A
-        let context = CompletionContext::new(vec![], "");
-        let result = compute_completions(&outer_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec![], "");
+
+        let result
+            = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"workspace"), "got: {:?}", texts);
         assert!(texts.contains(&"deploy"), "got: {:?}", texts);
         // No inner CLI commands should leak to the top level
@@ -1371,18 +1658,26 @@ mod tests {
         assert!(!texts.contains(&"publish"));
 
         // `workspace <TAB>` — should see both `run` and `list` subcommands
-        let context = CompletionContext::new(vec!["workspace"], "");
-        let result = compute_completions(&outer_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["workspace"], "");
+
+        let result
+            = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"run"), "got: {:?}", texts);
         assert!(texts.contains(&"list"), "got: {:?}", texts);
         assert!(!texts.contains(&"deploy"), "sibling top-level command should not appear here");
 
         // `workspace run <TAB>` — should see binary B's commands merged with
         // binary A's --verbose (proxy hasn't started yet)
-        let context = CompletionContext::new(vec!["workspace", "run"], "");
-        let result = compute_completions(&outer_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["workspace", "run"], "");
+
+        let result
+            = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"install"), "inner CLI commands should appear, got: {:?}", texts);
         assert!(texts.contains(&"publish"));
         assert!(texts.contains(&"test"));
@@ -1394,17 +1689,25 @@ mod tests {
         assert!(!texts.contains(&"main"));
 
         // `workspace run t<TAB>` — should filter to inner commands starting with "t"
-        let context = CompletionContext::new(vec!["workspace", "run"], "t");
-        let result = compute_completions(&outer_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["workspace", "run"], "t");
+
+        let result
+            = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"test"));
         assert!(!texts.contains(&"install"));
         assert!(!texts.contains(&"publish"));
 
         // `workspace run publish --<TAB>` — should see binary B's publish options
-        let context = CompletionContext::new(vec!["workspace", "run", "publish"], "--");
-        let result = compute_completions(&outer_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["workspace", "run", "publish"], "--");
+
+        let result
+            = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"--dry-run"), "should see inner command's options, got: {:?}", texts);
         assert!(texts.contains(&"--tag"));
         // publish's options, not install's or test's
@@ -1415,17 +1718,25 @@ mod tests {
         assert!(!texts.contains(&"--force"));
 
         // `workspace run install --frozen <TAB>` — after using an inner option
-        let context = CompletionContext::new(vec!["workspace", "run", "install", "--frozen"], "");
-        let result = compute_completions(&outer_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["workspace", "run", "install", "--frozen"], "");
+
+        let result
+            = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         // --frozen already used and is single-use, should not be suggested again
         assert!(!texts.contains(&"--frozen"),
             "already-used inner option should be filtered, got: {:?}", texts);
 
         // `workspace list --<TAB>` — sibling command should work independently
-        let context = CompletionContext::new(vec!["workspace", "list"], "--");
-        let result = compute_completions(&outer_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["workspace", "list"], "--");
+
+        let result
+            = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"--json"), "got: {:?}", texts);
         // No proxy/inner CLI options should leak
         assert!(!texts.contains(&"--verbose"));
@@ -1433,9 +1744,13 @@ mod tests {
         assert!(!texts.contains(&"--dry-run"));
 
         // `deploy <TAB>` — should see branch completions, not inner CLI commands
-        let context = CompletionContext::new(vec!["deploy"], "");
-        let result = compute_completions(&outer_refs, &machine, &context);
-        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        let context
+            = CompletionContext::new(vec!["deploy"], "");
+
+        let result
+            = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"main"), "deploy should see branch completions, got: {:?}", texts);
         assert!(texts.contains(&"develop"));
         assert!(!texts.contains(&"install"), "inner CLI should not leak into deploy");

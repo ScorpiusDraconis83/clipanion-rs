@@ -239,10 +239,10 @@ fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuil
 
         BuiltinCommand::CompletionScript { shell, command } => {
             // Determine the shell to use
-            let shell = shell
-                .as_ref()
-                .and_then(|s| Shell::from_str(s))
-                .or_else(Shell::detect);
+            let shell
+                = shell.as_ref()
+                    .and_then(|s| Shell::from_str(s))
+                    .or_else(Shell::detect);
 
             let Some(shell) = shell else {
                 eprintln!("Could not detect shell. Please specify with --shell <bash|zsh|fish>");
@@ -250,20 +250,25 @@ fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuil
             };
 
             // Use the provided command or default to the binary name
-            let command = command
-                .as_ref()
-                .map(|s| s.as_str())
-                .unwrap_or(&env.info.binary_name);
+            let command
+                = command.as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or(&env.info.binary_name);
 
-            let script = generate_completion_script(shell, command);
+            let script
+                = generate_completion_script(shell, command);
+
             println!("{}", script);
 
             Ok(std::process::ExitCode::SUCCESS)
         },
 
         BuiltinCommand::Complete { index, args } => {
-            let commands = S::registered_commands()?;
-            let machine = builder.compile();
+            let commands
+                = S::registered_commands()?;
+
+            let machine
+                = builder.compile();
 
             // Convert index + args into before/current
             let (before, current) = if args.is_empty() {
@@ -275,8 +280,11 @@ fn handle_builtin<'cmds, 'args, S: CliEnums + CommandProvider>(builder: &CliBuil
                 (args[..index].to_vec(), args[index])
             };
 
-            let context = CompletionContext::new(before, current);
-            let result = compute_completions(&commands, &machine, &context);
+            let context
+                = CompletionContext::new(before, current);
+
+            let result
+                = compute_completions(&commands, &machine, &context);
 
             // Output completions, one per line (tab-separated with description if available)
             for completion in result.completions {

@@ -314,9 +314,13 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
 
         // Handle --clipanion-completion-script [--shell <shell>] [--command <command>]
         if self.args[0] == "--clipanion-completion-script" {
-            let mut shell = None;
-            let mut command = None;
-            let mut i = 1;
+            let mut shell
+                = None;
+            let mut command
+                = None;
+            let mut i
+                = 1;
+
             while i < self.args.len() {
                 match self.args[i] {
                     "--shell" if i + 1 < self.args.len() => {
@@ -330,21 +334,26 @@ impl<'cmds, 'args> Selector<'cmds, 'args> {
                     _ => i += 1,
                 }
             }
+
             return Some(BuiltinCommand::CompletionScript { shell, command });
         }
 
         // Handle --clipanion-complete <index> -- <args...>
         if self.args[0] == "--clipanion-complete" {
-            let separator_pos = self.args.iter().position(|&arg| arg == "--");
+            let separator_pos
+                = self.args.iter().position(|&arg| arg == "--");
 
             if let Some(sep_pos) = separator_pos {
-                let index = if sep_pos > 1 {
-                    self.args[1].parse::<usize>().unwrap_or(0)
-                } else {
-                    0
-                };
+                let index
+                    = if sep_pos > 1 {
+                        self.args[1].parse::<usize>().unwrap_or(0)
+                    } else {
+                        0
+                    };
 
-                let args = self.args[sep_pos + 1..].to_vec();
+                let args
+                    = self.args[sep_pos + 1..].to_vec();
+
                 return Some(BuiltinCommand::Complete { index, args });
             } else {
                 return Some(BuiltinCommand::Complete { index: 0, args: vec![] });
