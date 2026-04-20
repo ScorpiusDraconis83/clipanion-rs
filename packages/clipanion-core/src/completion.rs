@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use crate::{
     builder::{Attachment, Check, CommandSpec, Component, OptionSpec, PositionalSpec, Reducer, State},
@@ -100,7 +100,9 @@ pub fn compute_completions<'cmds, 'args>(
     let states = run_machine_partial(machine, &context.args_before);
 
     // Now analyze each state to find valid completions
-    let mut completions = BTreeSet::new();
+    // Use a BTreeMap keyed by text so that entries with descriptions
+    // take precedence over bare entries for the same keyword.
+    let mut completions: BTreeMap<String, Completion> = BTreeMap::new();
 
     for state in &states {
         if state.node_id == ERROR_NODE_ID {
@@ -122,7 +124,27 @@ pub fn compute_completions<'cmds, 'args>(
             if let ArgKey::User(keyword) = key {
                 // Check if the current partial matches
                 if keyword.starts_with(context.current) {
-                    completions.insert(Completion::new(*keyword).as_path());
+                    let mut completion = Completion::new(*keyword).as_path();
+
+                    // If this keyword is the last segment of the command's path,
+                    // attach the command's description.
+                    if let Some(cmd) = command {
+                        let idx = state.keyword_count;
+                        let is_last_segment = |path: &[String]| {
+                            idx + 1 == path.len()
+                                && path.get(idx).map_or(false, |s| s.as_str() == *keyword)
+                        };
+
+                        if is_last_segment(&cmd.primary_path)
+                            || cmd.aliases.iter().any(|a| is_last_segment(a))
+                        {
+                            if let Some(doc) = &cmd.documentation {
+                                completion = completion.with_description(doc.description.clone());
+                            }
+                        }
+                    }
+
+                    insert_completion(&mut completions, completion);
                 }
             }
         }
@@ -136,46 +158,53 @@ pub fn compute_completions<'cmds, 'args>(
         };
 
         if state_has_complete_path {
-            for (check, transition) in &node.dynamics {
-                match check {
-                    Some(Check::IsOption(name)) => {
-                        // Don't suggest -- or -h/--help which are special
-                        if *name == "--" || *name == "-h" || *name == "--help" {
-                            continue;
-                        }
+            // Collect matching option completions for this state first, then
+            // only include undescribed options when no described option matches.
+            let mut option_candidates: Vec<Completion> = Vec::new();
 
-                        // Only suggest long options (--foo), not short options (-f)
-                        if !name.starts_with("--") {
-                            continue;
-                        }
-
-                        // Check if the current partial matches
-                        if name.starts_with(context.current) {
-                            // Find the option spec to check if it's already used
-                            if let Some(cmd) = command {
-                                if let Some((component_id, opt)) = find_option_with_id_by_name(cmd, name) {
-                                    // Skip options that are already used and don't accept multiple values
-                                    let is_single_use = opt.extra_len.is_some();
-                                    if is_single_use && used_option_ids.contains(&component_id) {
-                                        continue;
-                                    }
-
-                                    let description = opt.documentation.as_ref()
-                                        .map(|doc| doc.description.clone());
-
-                                    let mut completion = Completion::new(*name).as_option();
-                                    if let Some(desc) = description {
-                                        completion = completion.with_description(desc);
-                                    }
-                                    completions.insert(completion);
-                                }
-                            } else {
-                                // No command context, just add the option
-                                completions.insert(Completion::new(*name).as_option());
-                            }
-                        }
+            for (check, _) in &node.dynamics {
+                if let Some(Check::IsOption(name)) = check {
+                    // Don't suggest -- or -h/--help which are special
+                    if *name == "--" || *name == "-h" || *name == "--help" {
+                        continue;
                     }
 
+                    // Only suggest long options (--foo), not short options (-f)
+                    if !name.starts_with("--") {
+                        continue;
+                    }
+
+                    // Check if the current partial matches
+                    if name.starts_with(context.current) {
+                        if let Some(cmd) = command {
+                            if let Some((component_id, opt)) = find_option_with_id_by_name(cmd, name) {
+                                let is_single_use = opt.extra_len.is_some();
+                                if is_single_use && used_option_ids.contains(&component_id) {
+                                    continue;
+                                }
+
+                                let mut completion = Completion::new(*name).as_option();
+                                if let Some(doc) = &opt.documentation {
+                                    completion = completion.with_description(doc.description.clone());
+                                }
+                                option_candidates.push(completion);
+                            }
+                        } else {
+                            option_candidates.push(Completion::new(*name).as_option());
+                        }
+                    }
+                }
+            }
+
+            let has_any_described = option_candidates.iter().any(|c| c.description.is_some());
+            for c in option_candidates {
+                if !has_any_described || c.description.is_some() {
+                    insert_completion(&mut completions, c);
+                }
+            }
+
+            for (check, transition) in &node.dynamics {
+                match check {
                     Some(Check::IsNotOptionLike) | None => {
                         // Positional argument — invoke completer if available
                         if let Some(cmd) = command {
@@ -199,7 +228,7 @@ pub fn compute_completions<'cmds, 'args>(
                                     let local_context = CompletionContext::new(positional_args, context.current);
 
                                     for c in f(&local_context) {
-                                        completions.insert(c);
+                                        insert_completion(&mut completions, c);
                                     }
                                 }
                             }
@@ -214,7 +243,21 @@ pub fn compute_completions<'cmds, 'args>(
     }
 
     CompletionResult {
-        completions: completions.into_iter().collect(),
+        completions: completions.into_values().collect(),
+    }
+}
+
+/// Insert a completion into the map, preferring entries that carry a description.
+fn insert_completion(map: &mut BTreeMap<String, Completion>, completion: Completion) {
+    match map.entry(completion.text.clone()) {
+        std::collections::btree_map::Entry::Vacant(e) => {
+            e.insert(completion);
+        }
+        std::collections::btree_map::Entry::Occupied(mut e) => {
+            if completion.description.is_some() && e.get().description.is_none() {
+                e.insert(completion);
+            }
+        }
     }
 }
 
@@ -438,7 +481,7 @@ complete -c {binary_name} -f -a '(__fish_{binary_name}_completions)'
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{builder::CliBuilder, PositionalSpec};
+    use crate::{builder::{CliBuilder, Documentation}, PositionalSpec};
 
     fn create_simple_cli() -> Vec<CommandSpec> {
         vec![
@@ -613,6 +656,62 @@ mod tests {
         assert!(!texts.contains(&"--verbose"));
         assert!(!texts.contains(&"-m"));
         assert!(!texts.contains(&"--message"));
+    }
+
+    #[test]
+    fn test_keyword_completions_include_command_description() {
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["add".to_string()],
+                documentation: Some(Documentation::new("Add files to staging", None)),
+                components: vec![],
+                ..Default::default()
+            },
+            CommandSpec {
+                primary_path: vec!["commit".to_string()],
+                documentation: Some(Documentation::new("Record changes", None)),
+                components: vec![],
+                ..Default::default()
+            },
+            CommandSpec {
+                primary_path: vec!["workspace".to_string(), "run".to_string()],
+                documentation: Some(Documentation::new("Run a workspace script", None)),
+                components: vec![],
+                ..Default::default()
+            },
+            CommandSpec {
+                primary_path: vec!["workspace".to_string(), "list".to_string()],
+                documentation: Some(Documentation::new("List workspaces", None)),
+                components: vec![],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        // Top-level: single-segment commands get their description
+        let context = CompletionContext::new(vec![], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let add = result.completions.iter().find(|c| c.text == "add").unwrap();
+        assert_eq!(add.description.as_deref(), Some("Add files to staging"));
+        let commit = result.completions.iter().find(|c| c.text == "commit").unwrap();
+        assert_eq!(commit.description.as_deref(), Some("Record changes"));
+        // "workspace" is not a final segment, so no description
+        let workspace = result.completions.iter().find(|c| c.text == "workspace").unwrap();
+        assert_eq!(workspace.description, None);
+
+        // After "workspace": "run" and "list" are final segments and get descriptions
+        let context = CompletionContext::new(vec!["workspace"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let run = result.completions.iter().find(|c| c.text == "run").unwrap();
+        assert_eq!(run.description.as_deref(), Some("Run a workspace script"));
+        let list = result.completions.iter().find(|c| c.text == "list").unwrap();
+        assert_eq!(list.description.as_deref(), Some("List workspaces"));
     }
 
     #[test]
