@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use clipanion::prelude::*;
-use clipanion::core::Completion;
+use clipanion::core::{Completion, CompletionContext};
 
 /// Add file contents to the index.
 ///
@@ -59,11 +59,11 @@ impl GitBranchCommand {
     }
 }
 
-fn complete_branch(current: &str) -> Vec<Completion> {
+fn complete_branch(ctx: &CompletionContext) -> Vec<Completion> {
     // In a real CLI, this would call `git branch --list` or similar.
     let branches = ["main", "develop", "feature/login", "feature/search", "fix/typo"];
     branches.iter()
-        .filter(|b| b.starts_with(current))
+        .filter(|b| b.starts_with(ctx.current))
         .map(|b| Completion::new(*b))
         .collect()
 }

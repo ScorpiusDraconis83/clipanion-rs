@@ -407,7 +407,7 @@ pub enum PositionalSpec {
         is_proxy: bool,
 
         #[cfg_attr(feature = "serde", serde(skip))]
-        completer: Option<fn(&str) -> Vec<crate::completion::Completion>>,
+        completer: Option<fn(&crate::completion::CompletionContext) -> Vec<crate::completion::Completion>>,
     },
 }
 

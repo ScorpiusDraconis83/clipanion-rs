@@ -195,7 +195,16 @@ pub fn compute_completions<'cmds, 'args>(
 
                             if let Some(id) = component_id {
                                 if let Some(Component::Positional(PositionalSpec::Dynamic { completer: Some(f), .. })) = cmd.components.get(id) {
-                                    for c in f(context.current) {
+                                    // Build a context local to this positional: only include
+                                    // values already consumed by this specific component.
+                                    let positional_args: Vec<&str> = state.positional_values.iter()
+                                        .filter(|(cid, _)| *cid == id)
+                                        .flat_map(|(_, values)| values.iter().map(|v| v.value))
+                                        .collect();
+
+                                    let local_context = CompletionContext::new(positional_args, context.current);
+
+                                    for c in f(&local_context) {
                                         completions.insert(c);
                                     }
                                 }
@@ -653,10 +662,10 @@ mod tests {
         assert!(script.contains("complete -F _my-cli_completions my-cli"));
     }
 
-    fn branch_completer(current: &str) -> Vec<Completion> {
+    fn branch_completer(ctx: &CompletionContext) -> Vec<Completion> {
         let branches = vec!["main", "develop", "feature/login", "feature/search"];
         branches.into_iter()
-            .filter(|b| b.starts_with(current))
+            .filter(|b| b.starts_with(ctx.current))
             .map(|b| Completion::new(b))
             .collect()
     }
@@ -742,10 +751,10 @@ mod tests {
         assert!(result.completions.is_empty());
     }
 
-    fn script_completer(current: &str) -> Vec<Completion> {
+    fn script_completer(ctx: &CompletionContext) -> Vec<Completion> {
         let scripts = vec!["build", "test", "lint", "start"];
         scripts.into_iter()
-            .filter(|s| s.starts_with(current))
+            .filter(|s| s.starts_with(ctx.current))
             .map(|s| Completion::new(s))
             .collect()
     }
@@ -802,5 +811,495 @@ mod tests {
         let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
         assert!(texts.contains(&"build"));
         assert!(texts.contains(&"test"));
+    }
+
+    /// Completer that echoes back the args_before it receives, so we can verify
+    /// that the engine slices the context correctly for proxy positionals.
+    fn echo_context_completer(ctx: &CompletionContext) -> Vec<Completion> {
+        // Return each prior arg as a completion, plus "current:<current>" to verify
+        let mut result: Vec<Completion> = ctx.args_before.iter()
+            .map(|a| Completion::new(format!("before:{}", a)))
+            .collect();
+        result.push(Completion::new(format!("current:{}", ctx.current)));
+        result
+    }
+
+    #[test]
+    fn test_proxy_completer_receives_local_context() {
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["run".to_string()],
+                components: vec![
+                    Component::Option(OptionSpec::boolean("--verbose")),
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "ARGS".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: None,
+                        is_prefix: false,
+                        is_proxy: true,
+                        completer: Some(echo_context_completer),
+                    }),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        // First proxy arg: completer should see no prior args
+        // Full command: `run <TAB>` → args_before for completer = []
+        let context = CompletionContext::new(vec!["run"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"current:"));
+        assert!(!texts.iter().any(|t| t.starts_with("before:")));
+
+        // Second proxy arg: completer should see only the first proxy arg
+        // Full command: `run my-script <TAB>` → args_before for completer = ["my-script"]
+        let context = CompletionContext::new(vec!["run", "my-script"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"before:my-script"));
+        assert!(texts.contains(&"current:"));
+
+        // Third proxy arg with partial: completer should see two prior proxy args
+        // Full command: `run my-script --foo --b` → args_before for completer = ["my-script", "--foo"]
+        let context = CompletionContext::new(vec!["run", "my-script", "--foo"], "--b");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"before:my-script"));
+        assert!(texts.contains(&"before:--foo"));
+        assert!(texts.contains(&"current:--b"));
+
+        // With an option before the proxy, the machine has two valid parses:
+        // 1. --verbose consumed as option → proxy sees ["my-script"]
+        // 2. --verbose consumed as proxy arg → proxy sees ["--verbose", "my-script"]
+        // Both parses contribute completions, so we see results from both.
+        let context = CompletionContext::new(vec!["run", "--verbose", "my-script"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"before:my-script"));
+        assert!(texts.contains(&"current:"));
+    }
+
+    #[test]
+    fn test_proxy_with_keyword_before() {
+        // Command: `run <keyword> <proxy...>`
+        // The proxy completer should only see its own args, not the keyword.
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["run".to_string()],
+                components: vec![
+                    Component::Positional(PositionalSpec::Keyword {
+                        expected: "scripts".to_string(),
+                    }),
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "ARGS".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: None,
+                        is_prefix: false,
+                        is_proxy: true,
+                        completer: Some(echo_context_completer),
+                    }),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        // `run scripts <TAB>` — first proxy arg, completer should see no prior args
+        let context = CompletionContext::new(vec!["run", "scripts"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"current:"));
+        assert!(!texts.iter().any(|t| t.starts_with("before:")),
+            "keyword 'scripts' should not appear in proxy completer context, got: {:?}", texts);
+
+        // `run scripts hello world <TAB>` — third proxy arg
+        let context = CompletionContext::new(vec!["run", "scripts", "hello", "world"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"before:hello"));
+        assert!(texts.contains(&"before:world"));
+        assert!(!texts.iter().any(|t| *t == "before:scripts"),
+            "keyword should not leak into proxy context");
+    }
+
+    #[test]
+    fn test_proxy_without_completer() {
+        // A proxy without a completer should produce no completions at all.
+        // In particular, options from the command should not leak through.
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["run".to_string()],
+                components: vec![
+                    Component::Option(OptionSpec::boolean("--verbose")),
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "ARGS".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: None,
+                        is_prefix: false,
+                        is_proxy: true,
+                        completer: None,
+                    }),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        // `run foo <TAB>` — proxy has started, no completer set
+        let context = CompletionContext::new(vec!["run", "foo"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(!texts.contains(&"--verbose"),
+            "options should not leak through proxy without completer");
+        // The only completions might come from the non-proxy parse path (where
+        // --verbose hasn't been consumed yet), but no positional completions.
+    }
+
+    #[test]
+    fn test_proxy_multiple_commands_no_bleed() {
+        // Two commands: `run <proxy...>` and `build <positional>`.
+        // Completing after `run foo` should not suggest `build`'s options.
+        fn run_completer(ctx: &CompletionContext) -> Vec<Completion> {
+            vec![Completion::new(format!("run-completion:{}", ctx.current))]
+        }
+
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["run".to_string()],
+                components: vec![
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "ARGS".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: None,
+                        is_prefix: false,
+                        is_proxy: true,
+                        completer: Some(run_completer),
+                    }),
+                ],
+                ..Default::default()
+            },
+            CommandSpec {
+                primary_path: vec!["build".to_string()],
+                components: vec![
+                    Component::Option(OptionSpec::boolean("--release")),
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "TARGET".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: Some(0),
+                        is_prefix: false,
+                        is_proxy: false,
+                        completer: Some(branch_completer),
+                    }),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        // `run foo <TAB>` — should only get run's proxy completions
+        let context = CompletionContext::new(vec!["run", "foo"], "");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"run-completion:"));
+        assert!(!texts.contains(&"--release"),
+            "build's options should not appear in run's proxy completions");
+        assert!(!texts.contains(&"main"),
+            "build's positional completions should not bleed into run");
+    }
+
+    #[test]
+    fn test_options_complete_before_proxy_starts() {
+        // `run --<TAB>` should still suggest --verbose since no proxy arg consumed yet
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["run".to_string()],
+                components: vec![
+                    Component::Option(OptionSpec::boolean("--verbose")),
+                    Component::Option(OptionSpec::parametrized("--output")),
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "ARGS".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: None,
+                        is_prefix: false,
+                        is_proxy: true,
+                        completer: Some(script_completer),
+                    }),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        // `run --<TAB>` — no proxy arg yet, options should be suggested
+        let context = CompletionContext::new(vec!["run"], "--");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"--verbose"));
+        assert!(texts.contains(&"--output"));
+    }
+
+    #[test]
+    fn test_proxy_swallows_option_like_args() {
+        // Once proxy has consumed at least one arg, option-like args should go
+        // to the proxy completer rather than being treated as CLI options.
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["run".to_string()],
+                components: vec![
+                    Component::Option(OptionSpec::boolean("--verbose")),
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "ARGS".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: None,
+                        is_prefix: false,
+                        is_proxy: true,
+                        completer: Some(echo_context_completer),
+                    }),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+        let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+        // `run test --some-flag --<TAB>` — proxy has started, option-like input
+        // should be passed to the proxy completer, not matched as CLI options.
+        let context = CompletionContext::new(vec!["run", "test", "--some-flag"], "--");
+        let result = compute_completions(&command_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        // The echo completer should receive the option-like args as proxy context
+        assert!(texts.contains(&"before:test"));
+        assert!(texts.contains(&"before:--some-flag"));
+        assert!(texts.contains(&"current:--"));
+    }
+
+    #[test]
+    fn test_cross_binary_proxy_delegation() {
+        // Simulates binary A having a proxy that delegates completion to binary B.
+        //
+        // Binary B is a CLI with commands: `install`, `publish`, `test`
+        // Binary A has: `workspace run <proxy...>` where the proxy completer
+        // constructs binary B's CLI and calls compute_completions on it.
+
+        // This is Binary B's "CLI definition"
+        fn inner_cli_specs() -> Vec<CommandSpec> {
+            vec![
+                CommandSpec {
+                    primary_path: vec!["install".to_string()],
+                    components: vec![
+                        Component::Option(OptionSpec::boolean("--frozen")),
+                    ],
+                    ..Default::default()
+                },
+                CommandSpec {
+                    primary_path: vec!["publish".to_string()],
+                    components: vec![
+                        Component::Option(OptionSpec::boolean("--dry-run")),
+                        Component::Option(OptionSpec::parametrized("--tag")),
+                    ],
+                    ..Default::default()
+                },
+                CommandSpec {
+                    primary_path: vec!["test".to_string()],
+                    components: vec![
+                        Component::Option(OptionSpec::boolean("--watch")),
+                    ],
+                    ..Default::default()
+                },
+            ]
+        }
+
+        // Binary A's proxy completer: delegates to binary B's completion engine
+        fn delegate_completer(ctx: &CompletionContext) -> Vec<Completion> {
+            let specs = inner_cli_specs();
+            let mut builder = CliBuilder::new();
+            for spec in &specs {
+                builder.add_command(spec);
+            }
+            let machine = builder.compile();
+            let command_refs: Vec<&CommandSpec> = specs.iter().collect();
+
+            // Forward the positional-local context directly to binary B's engine
+            let result = compute_completions(&command_refs, &machine, ctx);
+            result.completions
+        }
+
+        // Binary A's CLI:
+        //   - `workspace run <proxy...>` (delegates to binary B)
+        //   - `workspace list` (a non-proxy sibling command)
+        //   - `deploy <target>` (a top-level non-proxy command)
+        let outer_specs = vec![
+            CommandSpec {
+                primary_path: vec!["workspace".to_string(), "run".to_string()],
+                components: vec![
+                    Component::Option(OptionSpec::boolean("--verbose")),
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "ARGS".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: None,
+                        is_prefix: false,
+                        is_proxy: true,
+                        completer: Some(delegate_completer),
+                    }),
+                ],
+                ..Default::default()
+            },
+            CommandSpec {
+                primary_path: vec!["workspace".to_string(), "list".to_string()],
+                components: vec![
+                    Component::Option(OptionSpec::boolean("--json")),
+                ],
+                ..Default::default()
+            },
+            CommandSpec {
+                primary_path: vec!["deploy".to_string()],
+                components: vec![
+                    Component::Option(OptionSpec::boolean("--force")),
+                    Component::Positional(PositionalSpec::Dynamic {
+                        name: "TARGET".to_string(),
+                        documentation: None,
+                        min_len: 1,
+                        extra_len: Some(0),
+                        is_prefix: false,
+                        is_proxy: false,
+                        completer: Some(branch_completer),
+                    }),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder = CliBuilder::new();
+        for spec in &outer_specs {
+            builder.add_command(spec);
+        }
+        let machine = builder.compile();
+        let outer_refs: Vec<&CommandSpec> = outer_specs.iter().collect();
+
+        // `<TAB>` — top-level: should see all path keywords from binary A
+        let context = CompletionContext::new(vec![], "");
+        let result = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"workspace"), "got: {:?}", texts);
+        assert!(texts.contains(&"deploy"), "got: {:?}", texts);
+        // No inner CLI commands should leak to the top level
+        assert!(!texts.contains(&"install"));
+        assert!(!texts.contains(&"publish"));
+
+        // `workspace <TAB>` — should see both `run` and `list` subcommands
+        let context = CompletionContext::new(vec!["workspace"], "");
+        let result = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"run"), "got: {:?}", texts);
+        assert!(texts.contains(&"list"), "got: {:?}", texts);
+        assert!(!texts.contains(&"deploy"), "sibling top-level command should not appear here");
+
+        // `workspace run <TAB>` — should see binary B's commands merged with
+        // binary A's --verbose (proxy hasn't started yet)
+        let context = CompletionContext::new(vec!["workspace", "run"], "");
+        let result = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"install"), "inner CLI commands should appear, got: {:?}", texts);
+        assert!(texts.contains(&"publish"));
+        assert!(texts.contains(&"test"));
+        assert!(texts.contains(&"--verbose"), "outer option still valid before proxy starts");
+        // Sibling command options should NOT appear
+        assert!(!texts.contains(&"--json"), "workspace list's options should not appear here");
+        assert!(!texts.contains(&"--force"), "deploy's options should not appear here");
+        // Sibling completions from branch_completer should not appear
+        assert!(!texts.contains(&"main"));
+
+        // `workspace run t<TAB>` — should filter to inner commands starting with "t"
+        let context = CompletionContext::new(vec!["workspace", "run"], "t");
+        let result = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"test"));
+        assert!(!texts.contains(&"install"));
+        assert!(!texts.contains(&"publish"));
+
+        // `workspace run publish --<TAB>` — should see binary B's publish options
+        let context = CompletionContext::new(vec!["workspace", "run", "publish"], "--");
+        let result = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"--dry-run"), "should see inner command's options, got: {:?}", texts);
+        assert!(texts.contains(&"--tag"));
+        // publish's options, not install's or test's
+        assert!(!texts.contains(&"--frozen"));
+        assert!(!texts.contains(&"--watch"));
+        // Outer CLI options should not appear (proxy has started)
+        assert!(!texts.contains(&"--json"));
+        assert!(!texts.contains(&"--force"));
+
+        // `workspace run install --frozen <TAB>` — after using an inner option
+        let context = CompletionContext::new(vec!["workspace", "run", "install", "--frozen"], "");
+        let result = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        // --frozen already used and is single-use, should not be suggested again
+        assert!(!texts.contains(&"--frozen"),
+            "already-used inner option should be filtered, got: {:?}", texts);
+
+        // `workspace list --<TAB>` — sibling command should work independently
+        let context = CompletionContext::new(vec!["workspace", "list"], "--");
+        let result = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"--json"), "got: {:?}", texts);
+        // No proxy/inner CLI options should leak
+        assert!(!texts.contains(&"--verbose"));
+        assert!(!texts.contains(&"--frozen"));
+        assert!(!texts.contains(&"--dry-run"));
+
+        // `deploy <TAB>` — should see branch completions, not inner CLI commands
+        let context = CompletionContext::new(vec!["deploy"], "");
+        let result = compute_completions(&outer_refs, &machine, &context);
+        let texts: Vec<&str> = result.completions.iter().map(|c| c.text.as_str()).collect();
+        assert!(texts.contains(&"main"), "deploy should see branch completions, got: {:?}", texts);
+        assert!(texts.contains(&"develop"));
+        assert!(!texts.contains(&"install"), "inner CLI should not leak into deploy");
+        assert!(!texts.contains(&"publish"));
     }
 }
