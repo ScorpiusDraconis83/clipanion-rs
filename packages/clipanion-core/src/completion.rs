@@ -157,13 +157,12 @@ pub fn compute_completions<'cmds, 'args>(
         }
 
         // Collect dynamic transitions (options and positionals)
-        // Only suggest if this specific state's command has a complete path
+        // Only suggest if no keyword transition is reachable from the current
+        // node (including through shortcuts), meaning the command path has been
+        // fully consumed. This works for aliases of any length.
         let state_has_complete_path
-            = if let Some(cmd) = command {
-                state.keyword_count >= cmd.primary_path.len()
-            } else {
-                false
-            };
+            = command.is_some()
+                && !has_reachable_keyword(machine, state.node_id);
 
         if state_has_complete_path {
             // Collect matching option completions for this state first, then
@@ -277,6 +276,36 @@ fn insert_completion(map: &mut BTreeMap<String, Completion>, completion: Complet
             }
         }
     }
+}
+
+/// Check whether a keyword transition is reachable from the given node,
+/// either directly or through shortcuts. If a keyword is reachable, it
+/// means the command path hasn't been fully consumed yet.
+fn has_reachable_keyword(machine: &CliMachine, start_node_id: usize) -> bool {
+    let mut visited
+        = std::collections::HashSet::new();
+
+    let mut stack
+        = vec![start_node_id];
+
+    while let Some(node_id) = stack.pop() {
+        if !visited.insert(node_id) {
+            continue;
+        }
+
+        let node
+            = &machine.nodes[node_id];
+
+        if node.statics.keys().any(|k| matches!(k, ArgKey::User(_))) {
+            return true;
+        }
+
+        for shortcut in &node.shortcuts {
+            stack.push(shortcut.to);
+        }
+    }
+
+    false
 }
 
 fn find_option_with_id_by_name<'cmds>(command: &'cmds CommandSpec, name: &str) -> Option<(usize, &'cmds OptionSpec)> {
@@ -899,6 +928,60 @@ mod tests {
             = result.completions.iter().map(|c| c.text.as_str()).collect();
 
         assert!(texts.contains(&"--verbose"), "after full path, options should appear, got: {:?}", texts);
+    }
+
+    #[test]
+    fn test_options_with_shorter_alias() {
+        // A command with a long primary path and a shorter alias should
+        // show options when the alias is fully typed, not only when the
+        // primary path is fully typed.
+        let specs = vec![
+            CommandSpec {
+                primary_path: vec!["workspace".to_string(), "list".to_string()],
+                aliases: vec![vec!["workspaces".to_string()]],
+                components: vec![
+                    Component::Option(OptionSpec::boolean("--json")),
+                ],
+                ..Default::default()
+            },
+        ];
+
+        let mut builder
+            = CliBuilder::new();
+
+        for spec in &specs {
+            builder.add_command(spec);
+        }
+
+        let machine
+            = builder.compile();
+
+        let command_refs: Vec<&CommandSpec>
+            = specs.iter().collect();
+
+        // `workspaces --<TAB>` — alias path is complete
+        let context
+            = CompletionContext::new(vec!["workspaces"], "--");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
+
+        assert!(texts.contains(&"--json"), "options should appear after completing the alias path, got: {:?}", texts);
+
+        // `workspace list --<TAB>` — primary path is also complete
+        let context
+            = CompletionContext::new(vec!["workspace", "list"], "--");
+
+        let result
+            = compute_completions(&command_refs, &machine, &context);
+
+        let texts: Vec<&str>
+            = result.completions.iter().map(|c| c.text.as_str()).collect();
+
+        assert!(texts.contains(&"--json"), "options should appear after completing the primary path, got: {:?}", texts);
     }
 
     #[test]
